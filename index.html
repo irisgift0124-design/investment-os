@@ -2724,15 +2724,17 @@ async function loadSettingsFromCloud(cloudSettings) {
 
 // Auto-save to cloud when settings change
 async function syncAllToCloud() {
+  // Use base cash (user-entered values before trade sync)
+  const baseCash = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
   await Promise.all([
     saveSettingToCloud('geminiKey', config.geminiKey || ''),
-    saveSettingToCloud('cash', JSON.stringify(cash)),
+    saveSettingToCloud('cash', JSON.stringify(baseCash)),
     saveSettingToCloud('techNotes', JSON.stringify(techNotes)),
     saveSettingToCloud('strategies', JSON.stringify(strategies)),
     saveSettingToCloud('actionItems', JSON.stringify(actionItems)),
     saveSettingToCloud('stockInfos', JSON.stringify(stockInfos)),
   ]);
-  alert('✓ 已同步到雲端，其他裝置重新整理即可取得最新設定');
+  alert('✓ 已同步到雲端！\n現金：' + JSON.stringify(baseCash) + '\n其他裝置重新整理即可取得最新設定');
 }
 
 // ======== INIT ========
