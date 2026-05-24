@@ -2646,10 +2646,12 @@ async function aiGenerateStockInfo() {
 // ======== CLOUD SYNC ========
 async function saveSettingToCloud(key, value) {
   try {
+    // value should already be a string; don't double-stringify
+    const strVal = typeof value === 'string' ? value : JSON.stringify(value);
     await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ saveSettings: { key, value: JSON.stringify(value) } })
+      body: JSON.stringify({ saveSettings: { key, value: strVal } })
     });
   } catch(e) {
     console.log('Cloud save failed:', e.message);
@@ -2661,68 +2663,73 @@ async function loadSettingsFromCloud(cloudSettings) {
 
   // Gemini Key - always load from cloud if exists
   if (cloudSettings.geminiKey) {
-    config.geminiKey = cloudSettings.geminiKey;
-    localStorage.setItem('invest_config', JSON.stringify(config));
+    let gKey = cloudSettings.geminiKey;
+    let maxT = 5;
+    while (typeof gKey === 'string' && gKey.startsWith('"') && maxT-- > 0) {
+      try { gKey = JSON.parse(gKey); } catch(e) { break; }
+    }
+    if (gKey && typeof gKey === 'string') {
+      config.geminiKey = gKey;
+      localStorage.setItem('invest_config', JSON.stringify(config));
+    }
   }
 
   // Cash - always load from cloud (cloud is source of truth)
   if (cloudSettings.cash) {
-    try {
-      // May be double-stringified
-      let cloudCash = cloudSettings.cash;
-      if (typeof cloudCash === 'string') cloudCash = JSON.parse(cloudCash);
-      if (typeof cloudCash === 'string') cloudCash = JSON.parse(cloudCash);
-      if (cloudCash && typeof cloudCash === 'object') {
-        cash = cloudCash;
-        localStorage.setItem('invest_cash', JSON.stringify(cash));
-        localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
-        console.log('Cash loaded from cloud:', JSON.stringify(cloudCash));
-      }
-    } catch(e) { console.log('Cash parse error:', e.message); }
+    const cloudCash = safeParse(cloudSettings.cash);
+    if (cloudCash && typeof cloudCash === 'object' && !Array.isArray(cloudCash)) {
+      cash = cloudCash;
+      localStorage.setItem('invest_cash', JSON.stringify(cash));
+      localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
+    }
   }
 
-  // Tech notes - take whichever has more data
+  // Helper: safely parse possibly multi-stringified JSON
+  const safeParse = (val) => {
+    try {
+      let v = val;
+      let maxTries = 5;
+      while (typeof v === 'string' && maxTries-- > 0) {
+        try { v = JSON.parse(v); } catch(e) { break; }
+      }
+      return v;
+    } catch(e) { return null; }
+  };
+
+  // Tech notes
   if (cloudSettings.techNotes) {
-    try {
-      const cloudNotes = JSON.parse(cloudSettings.techNotes);
-      if (cloudNotes.length >= techNotes.length) {
-        techNotes = cloudNotes;
-        localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
-      }
-    } catch(e) {}
+    const cloudNotes = safeParse(cloudSettings.techNotes);
+    if (Array.isArray(cloudNotes) && cloudNotes.length >= techNotes.length) {
+      techNotes = cloudNotes;
+      localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+    }
   }
 
-  // Strategies - take whichever has more data
+  // Strategies
   if (cloudSettings.strategies) {
-    try {
-      const cloudStrats = JSON.parse(cloudSettings.strategies);
-      if (cloudStrats.length >= strategies.length) {
-        strategies = cloudStrats;
-        localStorage.setItem('invest_strategies', JSON.stringify(strategies));
-      }
-    } catch(e) {}
+    const cloudStrats = safeParse(cloudSettings.strategies);
+    if (Array.isArray(cloudStrats) && cloudStrats.length >= strategies.length) {
+      strategies = cloudStrats;
+      localStorage.setItem('invest_strategies', JSON.stringify(strategies));
+    }
   }
 
   // Action items
   if (cloudSettings.actionItems) {
-    try {
-      const cloudActions = JSON.parse(cloudSettings.actionItems);
-      if (cloudActions.length >= actionItems.length) {
-        actionItems = cloudActions;
-        localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
-      }
-    } catch(e) {}
+    const cloudActions = safeParse(cloudSettings.actionItems);
+    if (Array.isArray(cloudActions) && cloudActions.length >= actionItems.length) {
+      actionItems = cloudActions;
+      localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
+    }
   }
 
   // Stock infos
   if (cloudSettings.stockInfos) {
-    try {
-      const cloudInfos = JSON.parse(cloudSettings.stockInfos);
-      if (Object.keys(cloudInfos).length >= Object.keys(stockInfos).length) {
-        stockInfos = cloudInfos;
-        localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos));
-      }
-    } catch(e) {}
+    const cloudInfos = safeParse(cloudSettings.stockInfos);
+    if (cloudInfos && typeof cloudInfos === 'object' && Object.keys(cloudInfos).length >= Object.keys(stockInfos).length) {
+      stockInfos = cloudInfos;
+      localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos));
+    }
   }
 
   updateGeminiStatus();
