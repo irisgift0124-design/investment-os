@@ -565,6 +565,7 @@ textarea { resize:vertical; min-height:70px; }
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn btn-outline" onclick="loadAllData()">⟳ 重新同步資料</button>
             <button class="btn btn-gold" onclick="syncAllToCloud()">☁ 立即同步所有設定到雲端</button>
+            <button class="btn btn-outline" onclick="testGASConnection()">🔍 測試連線</button>
           </div>
           <span id="gs-save-status" style="font-size:11px;color:var(--muted);margin-left:10px"></span>
         </div>
@@ -2699,15 +2700,19 @@ async function loadSettingsFromCloud(cloudSettings) {
       techNotes = cloudNotes;
       localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
     }
+    // Keep local if cloud parse fails
   }
 
   // Strategies
   if (cloudSettings.strategies) {
     const cloudStrats = safeParse(cloudSettings.strategies);
-    if (Array.isArray(cloudStrats) && cloudStrats.length >= strategies.length) {
-      strategies = cloudStrats;
-      localStorage.setItem('invest_strategies', JSON.stringify(strategies));
+    if (Array.isArray(cloudStrats)) {
+      if (cloudStrats.length >= strategies.length) {
+        strategies = cloudStrats;
+        localStorage.setItem('invest_strategies', JSON.stringify(strategies));
+      }
     }
+    // If parse failed or not array, keep local strategies intact
   }
 
   // Action items
@@ -2728,6 +2733,11 @@ async function loadSettingsFromCloud(cloudSettings) {
     }
   }
 
+  // Safety: ensure all state variables are correct types
+  if (!Array.isArray(strategies)) strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
+  if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+  if (!Array.isArray(actionItems)) actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
+
   updateGeminiStatus();
 }
 
@@ -2744,6 +2754,21 @@ async function syncAllToCloud() {
     saveSettingToCloud('stockInfos', JSON.stringify(stockInfos)),
   ]);
   alert('✓ 已同步到雲端！\n現金：' + JSON.stringify(baseCash) + '\n其他裝置重新整理即可取得最新設定');
+}
+
+async function testGASConnection() {
+  const btn = event.target;
+  btn.textContent = '測試中...';
+  try {
+    const res = await fetch(GAS_URL);
+    const text = await res.text();
+    let preview = text.slice(0, 200);
+    btn.textContent = '🔍 測試連線';
+    alert('✅ 連線成功！\n狀態：' + res.status + '\n回應預覽：' + preview);
+  } catch(e) {
+    btn.textContent = '🔍 測試連線';
+    alert('❌ 連線失敗！\n錯誤：' + e.message + '\n\n可能原因：\n1. 瀏覽器封鎖跨來源請求\n2. GAS 未正確部署\n3. 網路問題');
+  }
 }
 
 // ======== INIT ========
