@@ -2659,57 +2659,64 @@ async function saveSettingToCloud(key, value) {
 async function loadSettingsFromCloud(cloudSettings) {
   if (!cloudSettings) return;
 
-  // Gemini Key
-  if (cloudSettings.geminiKey && !config.geminiKey) {
+  // Gemini Key - always load from cloud if exists
+  if (cloudSettings.geminiKey) {
     config.geminiKey = cloudSettings.geminiKey;
     localStorage.setItem('invest_config', JSON.stringify(config));
   }
 
-  // Cash
+  // Cash - always load from cloud (cloud is source of truth)
   if (cloudSettings.cash) {
-    const cloudCash = JSON.parse(cloudSettings.cash);
-    const localBase = JSON.parse(localStorage.getItem('invest_cash_base') || 'null');
-    if (!localBase) {
+    try {
+      const cloudCash = JSON.parse(cloudSettings.cash);
       cash = cloudCash;
       localStorage.setItem('invest_cash', JSON.stringify(cash));
       localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
-    }
+    } catch(e) {}
   }
 
-  // Tech notes
+  // Tech notes - take whichever has more data
   if (cloudSettings.techNotes) {
-    const cloudNotes = JSON.parse(cloudSettings.techNotes);
-    if (cloudNotes.length > techNotes.length) {
-      techNotes = cloudNotes;
-      localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
-    }
+    try {
+      const cloudNotes = JSON.parse(cloudSettings.techNotes);
+      if (cloudNotes.length >= techNotes.length) {
+        techNotes = cloudNotes;
+        localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+      }
+    } catch(e) {}
   }
 
-  // Strategies
+  // Strategies - take whichever has more data
   if (cloudSettings.strategies) {
-    const cloudStrats = JSON.parse(cloudSettings.strategies);
-    if (cloudStrats.length > strategies.length) {
-      strategies = cloudStrats;
-      localStorage.setItem('invest_strategies', JSON.stringify(strategies));
-    }
+    try {
+      const cloudStrats = JSON.parse(cloudSettings.strategies);
+      if (cloudStrats.length >= strategies.length) {
+        strategies = cloudStrats;
+        localStorage.setItem('invest_strategies', JSON.stringify(strategies));
+      }
+    } catch(e) {}
   }
 
   // Action items
   if (cloudSettings.actionItems) {
-    const cloudActions = JSON.parse(cloudSettings.actionItems);
-    if (cloudActions.length > actionItems.length) {
-      actionItems = cloudActions;
-      localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
-    }
+    try {
+      const cloudActions = JSON.parse(cloudSettings.actionItems);
+      if (cloudActions.length >= actionItems.length) {
+        actionItems = cloudActions;
+        localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
+      }
+    } catch(e) {}
   }
 
   // Stock infos
   if (cloudSettings.stockInfos) {
-    const cloudInfos = JSON.parse(cloudSettings.stockInfos);
-    if (Object.keys(cloudInfos).length > Object.keys(stockInfos).length) {
-      stockInfos = cloudInfos;
-      localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos));
-    }
+    try {
+      const cloudInfos = JSON.parse(cloudSettings.stockInfos);
+      if (Object.keys(cloudInfos).length >= Object.keys(stockInfos).length) {
+        stockInfos = cloudInfos;
+        localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos));
+      }
+    } catch(e) {}
   }
 
   updateGeminiStatus();
