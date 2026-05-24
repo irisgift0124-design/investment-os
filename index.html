@@ -561,8 +561,11 @@ textarea { resize:vertical; min-height:70px; }
         </div>
         <div class="card">
           <div class="card-title">Google Sheets 連接狀態</div>
-          <div class="alert alert-info">Sheet ID 和 Apps Script 已設定完成，資料自動從你的 Google Sheet 讀取。</div>
-          <button class="btn btn-outline" onclick="loadAllData()">⟳ 重新同步</button>
+          <div class="alert alert-info">所有設定（Gemini Key、現金、筆記、策略）會自動同步到 Google Sheet，不同裝置開啟時自動讀取。</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-outline" onclick="loadAllData()">⟳ 重新同步資料</button>
+            <button class="btn btn-gold" onclick="syncAllToCloud()">☁ 立即同步所有設定到雲端</button>
+          </div>
           <span id="gs-save-status" style="font-size:11px;color:var(--muted);margin-left:10px"></span>
         </div>
       </div>
@@ -823,6 +826,8 @@ async function loadAllData() {
     holdings.tw = twHoldings.map(h => enrichHolding(h, 'tw'));
     holdings.us = usHoldings.map(h => enrichHolding(h, 'us'));
 
+    // Load cloud settings
+    await loadSettingsFromCloud(json.settings);
     renderHoldings();
     syncCashFromTrades();
     updateGSStatus(true);
@@ -1336,9 +1341,9 @@ function saveCash() {
   localStorage.setItem('invest_cash', JSON.stringify(cash));
   syncCashFromTrades();
   renderCash();
-  // Show save confirmation
+  saveSettingToCloud('cash', JSON.stringify(base));
   const btn = document.querySelector('#panel-cash .btn-primary');
-  if (btn) { const orig = btn.textContent; btn.textContent = '✓ 已儲存'; setTimeout(() => btn.textContent = orig, 1500); }
+  if (btn) { const orig = btn.textContent; btn.textContent = '✓ 已儲存並同步'; setTimeout(() => btn.textContent = orig, 1500); }
 }
 
 // ======== PERFORMANCE ========
@@ -1494,6 +1499,7 @@ function saveStrategy() {
   if (editingStrategyId) strategies = strategies.map(s=>s.id===editingStrategyId?data:s);
   else strategies.unshift(data);
   localStorage.setItem('invest_strategies', JSON.stringify(strategies));
+  saveSettingToCloud('strategies', JSON.stringify(strategies));
   closeModal('strategy-modal');
   renderStrategies();
 }
@@ -1865,8 +1871,11 @@ function loadSettings() {
 function saveGeminiKey() {
   config.geminiKey = document.getElementById('gemini-key').value.trim();
   localStorage.setItem('invest_config', JSON.stringify(config));
-  document.getElementById('gemini-save-status').textContent = '✓ 已儲存';
+  document.getElementById('gemini-save-status').textContent = '✓ 已儲存，同步中...';
   updateGeminiStatus();
+  saveSettingToCloud('geminiKey', config.geminiKey).then(() => {
+    document.getElementById('gemini-save-status').textContent = '✓ 已儲存並同步';
+  });
 }
 
 function saveNotion() {
@@ -2387,6 +2396,7 @@ function saveNote() {
   };
   techNotes.unshift(note);
   localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+  saveSettingToCloud('techNotes', JSON.stringify(techNotes));
   closeModal('note-modal');
   renderTechNotes();
 }
@@ -2603,6 +2613,7 @@ function saveStockInfo() {
     reason: document.getElementById('si-reason').value
   };
   localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos));
+  saveSettingToCloud('stockInfos', JSON.stringify(stockInfos));
   closeModal('stock-info-modal');
   renderHoldings();
 }
@@ -2629,6 +2640,92 @@ async function aiGenerateStockInfo() {
     }
     document.getElementById('si-desc').value = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   } catch(e) { document.getElementById('si-desc').value = ''; alert('生成失敗'); }
+}
+
+
+// ======== CLOUD SYNC ========
+async function saveSettingToCloud(key, value) {
+  try {
+    await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ saveSettings: { key, value: JSON.stringify(value) } })
+    });
+  } catch(e) {
+    console.log('Cloud save failed:', e.message);
+  }
+}
+
+async function loadSettingsFromCloud(cloudSettings) {
+  if (!cloudSettings) return;
+
+  // Gemini Key
+  if (cloudSettings.geminiKey && !config.geminiKey) {
+    config.geminiKey = cloudSettings.geminiKey;
+    localStorage.setItem('invest_config', JSON.stringify(config));
+  }
+
+  // Cash
+  if (cloudSettings.cash) {
+    const cloudCash = JSON.parse(cloudSettings.cash);
+    const localBase = JSON.parse(localStorage.getItem('invest_cash_base') || 'null');
+    if (!localBase) {
+      cash = cloudCash;
+      localStorage.setItem('invest_cash', JSON.stringify(cash));
+      localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
+    }
+  }
+
+  // Tech notes
+  if (cloudSettings.techNotes) {
+    const cloudNotes = JSON.parse(cloudSettings.techNotes);
+    if (cloudNotes.length > techNotes.length) {
+      techNotes = cloudNotes;
+      localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+    }
+  }
+
+  // Strategies
+  if (cloudSettings.strategies) {
+    const cloudStrats = JSON.parse(cloudSettings.strategies);
+    if (cloudStrats.length > strategies.length) {
+      strategies = cloudStrats;
+      localStorage.setItem('invest_strategies', JSON.stringify(strategies));
+    }
+  }
+
+  // Action items
+  if (cloudSettings.actionItems) {
+    const cloudActions = JSON.parse(cloudSettings.actionItems);
+    if (cloudActions.length > actionItems.length) {
+      actionItems = cloudActions;
+      localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
+    }
+  }
+
+  // Stock infos
+  if (cloudSettings.stockInfos) {
+    const cloudInfos = JSON.parse(cloudSettings.stockInfos);
+    if (Object.keys(cloudInfos).length > Object.keys(stockInfos).length) {
+      stockInfos = cloudInfos;
+      localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos));
+    }
+  }
+
+  updateGeminiStatus();
+}
+
+// Auto-save to cloud when settings change
+async function syncAllToCloud() {
+  await Promise.all([
+    saveSettingToCloud('geminiKey', config.geminiKey || ''),
+    saveSettingToCloud('cash', JSON.stringify(cash)),
+    saveSettingToCloud('techNotes', JSON.stringify(techNotes)),
+    saveSettingToCloud('strategies', JSON.stringify(strategies)),
+    saveSettingToCloud('actionItems', JSON.stringify(actionItems)),
+    saveSettingToCloud('stockInfos', JSON.stringify(stockInfos)),
+  ]);
+  alert('✓ 已同步到雲端，其他裝置重新整理即可取得最新設定');
 }
 
 // ======== INIT ========
