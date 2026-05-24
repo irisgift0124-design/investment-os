@@ -2668,11 +2668,17 @@ async function loadSettingsFromCloud(cloudSettings) {
   // Cash - always load from cloud (cloud is source of truth)
   if (cloudSettings.cash) {
     try {
-      const cloudCash = JSON.parse(cloudSettings.cash);
-      cash = cloudCash;
-      localStorage.setItem('invest_cash', JSON.stringify(cash));
-      localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
-    } catch(e) {}
+      // May be double-stringified
+      let cloudCash = cloudSettings.cash;
+      if (typeof cloudCash === 'string') cloudCash = JSON.parse(cloudCash);
+      if (typeof cloudCash === 'string') cloudCash = JSON.parse(cloudCash);
+      if (cloudCash && typeof cloudCash === 'object') {
+        cash = cloudCash;
+        localStorage.setItem('invest_cash', JSON.stringify(cash));
+        localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
+        console.log('Cash loaded from cloud:', JSON.stringify(cloudCash));
+      }
+    } catch(e) { console.log('Cash parse error:', e.message); }
   }
 
   // Tech notes - take whichever has more data
