@@ -2661,13 +2661,21 @@ async function saveSettingToCloud(key, value) {
 async function loadSettingsFromCloud(cloudSettings) {
   if (!cloudSettings) return;
 
-  // Gemini Key - always load from cloud if exists
+  // Helper: safely parse possibly multi-stringified JSON
+  const safeParse = (val) => {
+    try {
+      let v = val;
+      let maxTries = 5;
+      while (typeof v === 'string' && maxTries-- > 0) {
+        try { v = JSON.parse(v); } catch(e) { break; }
+      }
+      return v;
+    } catch(e) { return null; }
+  };
+
+  // Gemini Key
   if (cloudSettings.geminiKey) {
-    let gKey = cloudSettings.geminiKey;
-    let maxT = 5;
-    while (typeof gKey === 'string' && gKey.startsWith('"') && maxT-- > 0) {
-      try { gKey = JSON.parse(gKey); } catch(e) { break; }
-    }
+    const gKey = safeParse(cloudSettings.geminiKey);
     if (gKey && typeof gKey === 'string') {
       config.geminiKey = gKey;
       localStorage.setItem('invest_config', JSON.stringify(config));
@@ -2683,18 +2691,6 @@ async function loadSettingsFromCloud(cloudSettings) {
       localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
     }
   }
-
-  // Helper: safely parse possibly multi-stringified JSON
-  const safeParse = (val) => {
-    try {
-      let v = val;
-      let maxTries = 5;
-      while (typeof v === 'string' && maxTries-- > 0) {
-        try { v = JSON.parse(v); } catch(e) { break; }
-      }
-      return v;
-    } catch(e) { return null; }
-  };
 
   // Tech notes
   if (cloudSettings.techNotes) {
