@@ -221,7 +221,7 @@ textarea { resize:vertical; min-height:70px; }
     </div>
     <div class="sidebar-section">
       <div class="sidebar-section-label">工具</div>
-      <div class="nav-item" onclick="nav('strategies')"><span class="nav-icon">📋</span>投資策略</div>
+      <div class="nav-item" onclick="nav('strategies')" id="nav-strategies" style="display:none"><span class="nav-icon">📋</span>投資策略</div>
       <div class="nav-item" onclick="nav('notes')"><span class="nav-icon">📝</span>筆記中心</div>
       <div class="nav-item" onclick="nav('screenshot')"><span class="nav-icon">📷</span>截圖辨識</div>
       <div class="nav-item" onclick="nav('ai')"><span class="nav-icon">◈</span>AI 分析師</div>
@@ -1180,11 +1180,22 @@ function renderHoldings() {
     const rr = h.returnRate !== null ? `<span class="${h.returnRate>=0?'pnl-up':'pnl-down'}">${h.returnRate>=0?'+':''}${h.returnRate.toFixed(1)}%</span>` : '—';
     const cp = h.currentPrice ? h.currentPrice.toFixed(2) : '—';
     const info = stockInfos[h.ticker];
-    const infoRow = info ? `<tr id="info-${h.ticker}" style="display:none"><td colspan="9" style="padding:10px 16px;background:var(--paper2);font-size:12px;line-height:1.7;border-bottom:1px solid var(--border)">
-      <strong>${h.ticker} ${h.name}</strong> · ${info.industry||''} · ${info.chain||''}<br>
-      ${info.desc||''}<br>${info.reason?'<span style="color:var(--muted)">買入原因：'+info.reason+'</span>':''}
-      <button onclick="openStockInfoModal('${h.ticker}','${h.name}')" style="margin-left:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:var(--font-sans)">編輯</button>
-    </td></tr>` : '';
+    const strat = strategies.find(s => s.ticker === h.ticker);
+    const hasInfo = info || strat;
+    const infoRow = hasInfo ? '<tr id="info-' + h.ticker + '" style="display:none"><td colspan="9" style="padding:12px 16px;background:var(--paper2);font-size:12px;line-height:1.8;border-bottom:1px solid var(--border)">' +
+      (info ? '<div style="margin-bottom:8px"><strong>' + h.ticker + ' ' + h.name + '</strong>' + (info.industry?' · <span style="color:var(--muted)">'+info.industry+'</span>':'') + (info.chain?' · <span style="color:var(--muted)">'+info.chain+'</span>':'') + '</div>' +
+      (info.desc ? '<div style="margin-bottom:4px">' + info.desc + '</div>' : '') +
+      (info.reason ? '<div style="color:var(--muted)">買入原因：' + info.reason + '</div>' : '') : '') +
+      (strat ? '<div style="margin-top:' + (info?'10':'0') + 'px;padding-top:' + (info?'10':'0') + 'px;' + (info?'border-top:1px solid var(--border);':'') + '">' +
+      '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">投資策略</div>' +
+      (strat.buyPrice ? '<div>目標買入：<strong>' + strat.buyPrice + '</strong>' + (strat.sellPrice?' ｜ 目標賣出：<strong>'+strat.sellPrice+'</strong>':'') + (strat.stopLoss?' ｜ 停損：<span style="color:var(--red)">'+strat.stopLoss+'</span>':'') + '</div>' : '') +
+      (strat.reason ? '<div style="color:var(--muted);margin-top:4px">' + strat.reason + '</div>' : '') +
+      '</div>' : '') +
+      '<div style="margin-top:10px;display:flex;gap:8px">' +
+      '<button onclick="editStockInfo(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯簡介</button>' +
+      (strat ? '<button onclick="editStrat(this)" data-id="' + strat.id + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯策略</button>' :
+      '<button onclick="openStrategyModal()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">新增策略</button>') +
+      '</div></td></tr>' : '';
     return `<tr onclick="toggleStockInfo('${h.ticker}')" style="cursor:pointer">
       <td><span class="ticker-badge">${h.ticker}</span></td>
       <td>${h.name} ${info?'<span style="font-size:10px;color:var(--gold)">●</span>':'<span style="font-size:10px;color:var(--border)" title="點擊新增簡介">○</span>'}</td>
@@ -1622,13 +1633,15 @@ async function processImage(file) {
   const b64 = await fileToBase64(file);
   const selectedBroker = document.getElementById('screenshot-broker')?.value || '';
   const selectedMarket = document.getElementById('screenshot-market')?.value || 'auto';
-  const brokerHint = selectedBroker === 'Interactive Brokers'
-    ? '這是 Interactive Brokers (IBKR) 的交易截圖，欄位可能是英文。Filled/BOT=買進，SLD=賣出，Quantity=數量，Price=成交價，Commission=手續費。'
-    : selectedBroker === 'Firstrade'
-    ? '這是 Firstrade 的交易截圖，為美股交易。'
-    : '';
-  const marketHint = selectedMarket === 'auto' ? 'tw或us' : selectedMarket;
-  const prompt = '這是一張' + (selectedBroker||'') + '股票交易截圖。' + brokerHint + '請辨識交易資訊，只回應JSON不要其他文字：\n{"broker":"' + (selectedBroker||'券商') + '","date":"YYYY/MM/DD","ticker":"股票代號","name":"股票名稱","type":"買進或賣出","qty":數量,"price":成交價,"fee":手續費或0,"total":總金額,"market":"' + marketHint + '"}';
+  const marketHint = selectedMarket === 'auto' ? 'tw' : selectedMarket;
+  let prompt = 'Look at this trading screenshot and extract the trade information. ';
+  if (selectedBroker === 'Interactive Brokers') {
+    prompt += 'This is an Interactive Brokers (IBKR) screenshot. BOT/Bought=buy, SLD/Sold=sell. ';
+  } else if (selectedBroker === 'Firstrade') {
+    prompt += 'This is a Firstrade screenshot. ';
+  }
+  prompt += 'Return ONLY a JSON object with these exact fields, no other text:\n';
+  prompt += '{"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD format","ticker":"stock symbol","name":"company name","type":"買進 or 賣出","qty":number,"price":number,"fee":number or 0,"total":number,"market":"' + marketHint + '"}';
 
   try {
     // Try 2.5-flash first, fallback to 2.0-flash if overloaded
@@ -1646,6 +1659,7 @@ async function processImage(file) {
     if (data.error) throw new Error(data.error.message + ' (code: ' + data.error.code + ')');
     if (!data.candidates || !data.candidates[0]) throw new Error('No candidates: ' + JSON.stringify(data).slice(0,200));
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    console.log('Gemini raw text:', text.slice(0, 300));
     if (!text) throw new Error('Empty response from Gemini');
     const json = JSON.parse(text.replace(/```json|```/g,'').trim());
     console.log('Screenshot JSON:', JSON.stringify(json));
@@ -1688,6 +1702,7 @@ async function processImage(file) {
       </div>`;
   } catch(e) {
     el.innerHTML = `<div class="alert alert-warn">辨識失敗：${e.message}<br>請確認截圖清晰且包含交易資訊</div>`;
+    console.error('processImage error:', e);
   }
 }
 
@@ -1937,9 +1952,26 @@ document.getElementById('chat-input').addEventListener('input', function() {
 });
 
 
+function editStockInfo(btn) {
+  const ticker = btn.getAttribute('data-ticker');
+  const name = btn.getAttribute('data-name');
+  openStockInfoModal(ticker, name);
+}
+
+function editStrat(btn) {
+  const id = btn.getAttribute('data-id');
+  openStrategyModal(id);
+}
+
 function toggleStockInfo(ticker) {
   const el = document.getElementById('info-' + ticker);
-  if (!el) { openStockInfoModal(ticker, holdings.tw.find(h=>h.ticker===ticker)?.name||ticker); return; }
+  const strat = strategies.find(s => s.ticker === ticker);
+  const info = stockInfos[ticker];
+  if (!el) {
+    // No info AND no strategy - open stock info modal
+    if (!info && !strat) openStockInfoModal(ticker, holdings.tw.find(h=>h.ticker===ticker)?.name||ticker);
+    return;
+  }
   el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
 
@@ -1976,6 +2008,17 @@ async function loadMarketEvents() {
       events.push({ date: year+'/11/14', type:'財報季', title:'台股 Q3 財報截止', desc:'上市櫃公司Q3財報公布期間', tag:'台股', color:'var(--gold)' });
     }
 
+    // Known product launch events
+    const productEvents = [
+      { date: year+'/06/09', title:'Apple WWDC 2026', desc:'蘋果全球開發者大會，預計發布 iOS/macOS 新版本及 AI 功能', tag:'科技事件', color:'var(--blue)' },
+      { date: year+'/09/15', title:'Apple 新品發表', desc:'預計發布新款 iPhone，供應鏈散熱/半導體受惠', tag:'科技事件', color:'var(--blue)' },
+      { date: year+'/05/28', title:'NVIDIA GTC 2026', desc:'輝達開發者大會，AI GPU 最新技術發布', tag:'AI事件', color:'#7F77DD' },
+    ];
+    productEvents.forEach(e => {
+      const d = new Date(e.date.replace(/\//g,'-'));
+      if (d >= today && d <= cutoff) events.push(e);
+    });
+
     // US earnings (major AI/tech companies - quarterly)
     const usEarnings = [
       { ticker:'NVDA', name:'輝達', months:[2,5,8,11] },
@@ -1986,6 +2029,7 @@ async function loadMarketEvents() {
       { ticker:'AMZN', name:'亞馬遜', months:[1,4,7,10] },
       { ticker:'AVGO', name:'博通', months:[2,5,8,11] },
       { ticker:'MU', name:'美光', months:[1,4,6,9] },
+      { ticker:'MRVL', name:'邁威爾', months:[3,6,9,12] },
     ];
 
     for (const co of usEarnings) {
@@ -2367,25 +2411,35 @@ function renderActionItems() {
     document.getElementById('action-count').textContent = '';
     return;
   }
-  document.getElementById('action-count').textContent = `(${pending.length} 個待執行)`;
+  document.getElementById('action-count').textContent = '(' + pending.length + ' 個待執行)';
   const statusIcon = { triggered:'🟢', waiting:'⏳', watching:'👀' };
   const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
-  el.innerHTML = '<table class="data-table">' +
-    '<thead><tr><th></th><th>標的</th><th>筆記策略</th><th>當前狀況</th><th>AI 建議</th><th>狀態</th></tr></thead><tbody>' +
-    pending.map(item =>
-      '<tr style="' + (item.status==='triggered'?'background:rgba(26,92,46,0.05)':'') + '">' +
-      '<td><input type="checkbox" onchange="executeAction(\'' + item.id + '\')" style="cursor:pointer"></td>' +
+
+  const renderTable = (items, label) => {
+    if (!items.length) return '';
+    return '<div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">' + label + '</div>' +
+    '<div class="table-scroll"><table class="data-table" style="min-width:500px">' +
+    '<thead><tr><th></th><th>標的</th><th>策略</th><th>狀況</th><th>建議</th><th>狀態</th></tr></thead><tbody>' +
+    items.map(function(item) {
+      return '<tr style="' + (item.status==='triggered'?'background:rgba(26,92,46,0.05)':'') + '">' +
+      '<td><input type="checkbox" data-id="' + item.id + '" onchange="executeAction(this.dataset.id)" style="cursor:pointer"></td>' +
       '<td><span class="ticker-badge">' + item.ticker + '</span><div style="font-size:10px;color:var(--muted)">' + (item.name||'') + '</div></td>' +
-      '<td style="font-size:11px;color:var(--muted);max-width:150px">' + item.strategy + '</td>' +
+      '<td style="font-size:11px;color:var(--muted);max-width:120px">' + (item.strategy||'') + '</td>' +
       '<td style="font-size:11px">' + (item.currentPrice?'現價 <strong>'+item.currentPrice+'</strong><br>':'') + (item.currentStatus||'') +
         (item.earningsAlert ? '<div style="font-size:10px;color:var(--gold);margin-top:3px">📅 ' + item.earningsAlert + '</div>' : '') + '</td>' +
-      '<td style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';max-width:150px">' + item.suggestion + '</td>' +
+      '<td style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';max-width:120px">' + (item.suggestion||'') + '</td>' +
       '<td style="font-size:13px">' + (statusIcon[item.status]||'👀') + ' <span style="font-size:10px">' + (item.status==='triggered'?'觸發':item.status==='waiting'?'等待':'觀察') + '</span></td>' +
-      '</tr>'
-    ).join('') +
-    '</tbody></table>';
+      '</tr>';
+    }).join('') + '</tbody></table></div>';
+  };
 
-  // Executed list
+  const twItems = pending.filter(function(i) { return !holdings.us.find(function(h) { return h.ticker === i.ticker; }); });
+  const usItems = pending.filter(function(i) { return holdings.us.find(function(h) { return h.ticker === i.ticker; }); });
+
+  el.innerHTML = renderTable(twItems, '🇹🇼 台股') + renderTable(usItems, '🇺🇸 美股');
+  if (!el.innerHTML.trim()) el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">目前沒有待執行項目</div>';
+
+    // Executed list
   const executed = executedItems.slice(-5).reverse();
   document.getElementById('executed-list').innerHTML = executed.length
     ? executed.map(i => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px"><span><strong>${i.ticker}</strong> ${i.name||''}</span><span style="color:var(--muted)">${i.executedAt}</span></div>`).join('')
