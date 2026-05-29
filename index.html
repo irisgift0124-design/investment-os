@@ -1622,7 +1622,13 @@ async function processImage(file) {
   const b64 = await fileToBase64(file);
   const selectedBroker = document.getElementById('screenshot-broker')?.value || '';
   const selectedMarket = document.getElementById('screenshot-market')?.value || 'auto';
-  const prompt = '這是一張股票交易截圖。請辨識以下資訊並以 JSON 格式回應（只回應JSON，不要其他文字）：\n{\n  "broker": "' + (selectedBroker || '券商名稱') + '",\n  "date": "交易日期 YYYY/MM/DD",\n  "ticker": "股票代號",\n  "name": "股票名稱",\n  "type": "買進或賣出",\n  "qty": 數量,\n  "price": 成交價格,\n  "fee": 手續費,\n  "total": 總金額,\n  "market": "' + (selectedMarket === 'auto' ? 'tw或us' : selectedMarket) + '"\n}';
+  const brokerHint = selectedBroker === 'Interactive Brokers'
+    ? '這是 Interactive Brokers (IBKR) 的交易截圖，欄位可能是英文。Filled/BOT=買進，SLD=賣出，Quantity=數量，Price=成交價，Commission=手續費。'
+    : selectedBroker === 'Firstrade'
+    ? '這是 Firstrade 的交易截圖，為美股交易。'
+    : '';
+  const marketHint = selectedMarket === 'auto' ? 'tw或us' : selectedMarket;
+  const prompt = '這是一張' + (selectedBroker||'') + '股票交易截圖。' + brokerHint + '請辨識交易資訊，只回應JSON不要其他文字：\n{"broker":"' + (selectedBroker||'券商') + '","date":"YYYY/MM/DD","ticker":"股票代號","name":"股票名稱","type":"買進或賣出","qty":數量,"price":成交價,"fee":手續費或0,"total":總金額,"market":"' + marketHint + '"}';
 
   try {
     // Try 2.5-flash first, fallback to 2.0-flash if overloaded
@@ -1642,21 +1648,38 @@ async function processImage(file) {
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text||'';
     if (!text) throw new Error('Empty response from Gemini');
     const json = JSON.parse(text.replace(/```json|```/g,'').trim());
+    console.log('Screenshot JSON:', JSON.stringify(json));
     window._lastScreenshotJson = json;
+
+    // Normalize field names (AI may use different keys)
+    const normalized = {
+      broker: json.broker || json['券商'] || selectedBroker || '—',
+      date: json.date || json['日期'] || json['交易日期'] || '—',
+      ticker: json.ticker || json['ticker'] || json['股票代號'] || json['代號'] || '',
+      name: json.name || json['name'] || json['股票名稱'] || json['名稱'] || '',
+      type: json.type || json['type'] || json['交易類型'] || json['類型'] || '買進',
+      qty: json.qty || json['qty'] || json['數量'] || json['股數'] || 0,
+      price: json.price || json['price'] || json['成交價格'] || json['成交價'] || 0,
+      fee: json.fee || json['fee'] || json['手續費'] || 0,
+      total: json.total || json['total'] || json['總金額'] || json['收付總金額'] || 0,
+      market: json.market || json['market'] || json['市場'] || (selectedMarket === 'auto' ? 'tw' : selectedMarket)
+    };
+    window._lastScreenshotJson = normalized;
+    console.log('Normalized JSON:', JSON.stringify(normalized));
 
     el.innerHTML = `
       <div class="card">
         <div class="card-title">辨識結果</div>
         <table class="data-table">
-          <tr><td>券商</td><td>${json.broker||'—'}</td></tr>
-          <tr><td>日期</td><td>${json.date||'—'}</td></tr>
-          <tr><td>股票</td><td>${json.ticker} ${json.name}</td></tr>
-          <tr><td>類型</td><td><span class="tag ${json.type==='買進'?'tag-buy':'tag-sell'}">${json.type}</span></td></tr>
-          <tr><td>數量</td><td>${json.qty}</td></tr>
-          <tr><td>成交價</td><td>${json.price}</td></tr>
-          <tr><td>手續費</td><td>${json.fee||0}</td></tr>
-          <tr><td>總金額</td><td>${json.total}</td></tr>
-          <tr><td>市場</td><td>${json.market==='tw'?'台股':'美股'}</td></tr>
+          <tr><td>券商</td><td>${normalized.broker}</td></tr>
+          <tr><td>日期</td><td>${normalized.date}</td></tr>
+          <tr><td>股票</td><td>${normalized.ticker} ${normalized.name}</td></tr>
+          <tr><td>類型</td><td><span class="tag ${normalized.type==='買進'?'tag-buy':'tag-sell'}">${normalized.type}</span></td></tr>
+          <tr><td>數量</td><td>${normalized.qty}</td></tr>
+          <tr><td>成交價</td><td>${normalized.price}</td></tr>
+          <tr><td>手續費</td><td>${normalized.fee||0}</td></tr>
+          <tr><td>總金額</td><td>${normalized.total}</td></tr>
+          <tr><td>市場</td><td>${normalized.market==='tw'?'台股':'美股'}</td></tr>
         </table>
         <div style="margin-top:14px;display:flex;gap:8px">
           <button class="btn btn-primary" onclick="writeToSheet()">✓ 寫入 Google Sheet</button>
