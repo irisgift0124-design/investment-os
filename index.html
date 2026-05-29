@@ -83,7 +83,8 @@ body::before { content:''; position:fixed; inset:0; background-image:url("data:i
 .summary-sub { font-size:10px; color:var(--muted); margin-top:3px; }
 
 /* Table */
-.data-table { width:100%; border-collapse:collapse; font-size:12px; }
+.table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.data-table { width:100%; border-collapse:collapse; font-size:12px; min-width:600px; }
 .data-table th { text-align:left; padding:8px 10px; font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); font-weight:500; }
 .data-table td { padding:9px 10px; border-bottom:1px solid rgba(200,191,170,0.4); }
 .data-table tr:last-child td { border-bottom:none; }
@@ -258,26 +259,26 @@ textarea { resize:vertical; min-height:70px; }
           </div>
           <div id="holding-tabs-tw">
             <div class="card"><div class="card-title">台股持倉明細</div>
-              <table class="data-table"><thead><tr><th>代碼</th><th>名稱</th><th>持股</th><th>均成本</th><th>現價</th><th>市值</th><th>未實現損益</th><th>含息損益</th><th>報酬率</th></tr></thead>
-              <tbody id="tw-tbody"></tbody></table>
+              <div class="table-scroll"><table class="data-table"><thead><tr><th>代碼</th><th>名稱</th><th>持股</th><th>均成本</th><th>現價</th><th>市值</th><th>未實現損益</th><th>含息損益</th><th>報酬率</th></tr></thead>
+              <tbody id="tw-tbody"></tbody></table></div>
             </div>
           </div>
           <div id="holding-tabs-us" style="display:none">
             <div class="card"><div class="card-title">美股持倉明細</div>
-              <table class="data-table"><thead><tr><th>代碼</th><th>名稱</th><th>持股</th><th>均成本</th><th>現價</th><th>市值(USD)</th><th>未實現損益</th><th>報酬率</th></tr></thead>
-              <tbody id="us-tbody"></tbody></table>
+              <div class="table-scroll"><table class="data-table"><thead><tr><th>代碼</th><th>名稱</th><th>持股</th><th>均成本</th><th>現價</th><th>市值(USD)</th><th>未實現損益</th><th>報酬率</th></tr></thead>
+              <tbody id="us-tbody"></tbody></table></div>
             </div>
           </div>
           <div id="holding-tabs-history" style="display:none">
             <div class="card"><div class="card-title">最近交易紀錄</div>
-              <table class="data-table"><thead><tr><th>日期</th><th>代碼</th><th>名稱</th><th>類型</th><th>數量</th><th>成交價</th><th>金額</th><th>市場</th></tr></thead>
-              <tbody id="history-tbody"></tbody></table>
+              <div class="table-scroll"><table class="data-table"><thead><tr><th>日期</th><th>代碼</th><th>名稱</th><th>類型</th><th>數量</th><th>成交價</th><th>金額</th><th>市場</th></tr></thead>
+              <tbody id="history-tbody"></tbody></table></div>
             </div>
           </div>
           <div id="holding-tabs-realized" style="display:none">
             <div class="card"><div class="card-title">已實現損益（含持有期間股息）</div>
-              <table class="data-table"><thead><tr><th>代碼</th><th>名稱</th><th>股數</th><th>賣出金額</th><th>買入成本</th><th>買賣損益</th><th>持有股息</th><th>含息損益</th><th>報酬率</th><th>年化報酬</th></tr></thead>
-              <tbody id="realized-detail-tbody"></tbody></table>
+              <div class="table-scroll"><table class="data-table"><thead><tr><th>代碼</th><th>名稱</th><th>股數</th><th>賣出金額</th><th>買入成本</th><th>買賣損益</th><th>持有股息</th><th>含息損益</th><th>報酬率</th><th>年化報酬</th></tr></thead>
+              <tbody id="realized-detail-tbody"></tbody></table></div>
             </div>
           </div>
         </div>
@@ -829,6 +830,10 @@ async function loadAllData() {
 
     // Load cloud settings
     await loadSettingsFromCloud(json.settings);
+    // Safety: ensure all state variables are correct types after cloud load
+    if (!Array.isArray(strategies)) strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
+    if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+    if (!Array.isArray(actionItems)) actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
     renderHoldings();
     syncCashFromTrades();
     updateGSStatus(true);
@@ -2283,24 +2288,46 @@ async function analyzeActionNotes() {
   else if (month === 10 || month === 11) earningsNote = '現在是' + month + '月，Q3財報公布季（11月底），留意Q4展望';
   else earningsNote = '台股財報時間：Q1(4月底) Q2(8月底) Q3(11月底) Q4(3月底)';
 
-  const noteContext = '今天日期：' + todayStr + '\n' + earningsNote + '\n美股財報季通常在1/4/7/10月中下旬';
-  const jsonTemplate = '[{"ticker":"代號","name":"名稱","strategy":"筆記策略","currentStatus":"目前狀況（含財報/事件考量）","currentPrice":null,"status":"triggered或waiting或watching","suggestion":"具體建議（含財報時程）","urgency":"high或medium或low","earningsAlert":"是否有財報相關注意事項（若有）"}]';
-  const prompt = '你是專業投資分析師。投資者筆記：\n' + text + '\n\n即時股價：' + JSON.stringify(currentPrices) + '\n\n' + noteContext + '\n\n請分析每個標的的策略條件，對比即時股價，並考量目前財報季時程給出建議。只回JSON，範本：' + jsonTemplate;
+  const noteContext = '今天：' + todayStr + '。' + earningsNote;
+  const limitedText = text.slice(0, 600);
+  const priceStr = JSON.stringify(currentPrices).slice(0, 200);
+  const prompt = '分析以下投資筆記，用JSON陣列回應，每個標的一個物件。只輸出JSON，不要說明文字。\n筆記：' + limitedText + '\n股價：' + priceStr + '\n格式：[{"ticker":"","name":"","strategy":"","currentStatus":"","currentPrice":0,"status":"waiting","suggestion":"","urgency":"medium","earningsAlert":""}]';
 
   try {
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-    let data;
+    let data, lastError;
     for (const model of models) {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:{maxOutputTokens:2000,temperature:0.3} })
+        body: JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:{maxOutputTokens:4000,temperature:0.3} })
       });
       data = await r.json();
-      if (data.error && (data.error.code===503||data.error.code===429)) continue;
+      if (data.error) { lastError = data.error; if (data.error.code===503||data.error.code===429) continue; }
       break;
     }
-    const text2 = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const items = JSON.parse(text2.replace(/```json|```/g,'').trim());
+    if (data.error) throw new Error(data.error.message + ' (code:' + data.error.code + ')');
+    if (!data.candidates || !data.candidates[0]) throw new Error('API 無回應，請確認 Gemini Key 是否有效');
+    const text2 = data.candidates[0]?.content?.parts?.[0]?.text || '';
+    console.log('AI raw response:', text2.slice(0, 500));
+    // Clean and safely parse JSON
+    let cleanText = text2.replace(/```json|```/g,'').trim();
+    const jsonStart = cleanText.indexOf('[');
+    const jsonEnd = cleanText.lastIndexOf(']');
+    if (jsonStart === -1 || jsonEnd === -1) throw new Error('AI 回傳：' + cleanText.slice(0, 100));
+    cleanText = cleanText.slice(jsonStart, jsonEnd + 1);
+    let items;
+    try {
+      items = JSON.parse(cleanText);
+    } catch(parseErr) {
+      // Try to fix truncated JSON by finding last complete object
+      const lastComplete = cleanText.lastIndexOf('},');
+      if (lastComplete > 0) {
+        try { items = JSON.parse(cleanText.slice(0, lastComplete + 1) + ']'); }
+        catch(e) { throw new Error('JSON 解析失敗，請減少筆記量後重試'); }
+      } else {
+        throw new Error('AI 回傳不完整，請重試');
+      }
+    }
     actionItems = items.map(item => ({ ...item, id: Date.now() + Math.random(), done: false, createdAt: new Date().toLocaleDateString('zh-TW') }));
     localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
     renderActionItems();
@@ -2388,6 +2415,8 @@ ${raw}`}]}], generationConfig:{maxOutputTokens:200} })
 function saveNote() {
   const raw = document.getElementById('nm-raw').value.trim();
   if (!raw) return alert('請填入筆記內容');
+  // Ensure techNotes is array
+  if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
   const note = {
     id: Date.now().toString(),
     raw, category: document.getElementById('nm-category').value,
@@ -2626,21 +2655,40 @@ async function aiGenerateStockInfo() {
   const ticker = editingStockTicker;
   const h = [...holdings.tw, ...holdings.us].find(h => h.ticker === ticker);
   const name = h?.name || ticker;
-  document.getElementById('si-desc').value = '生成中...';
+
+  // Show loading in all fields
+  document.getElementById('si-desc').value = 'AI 生成中...';
+  document.getElementById('si-industry').value = '';
+
+  const prompt = '請介紹台灣股票代號 ' + ticker + ' ' + name + '，用繁體中文，以JSON格式回應（只回JSON不要其他文字）：\n{\n  "desc": "公司主要業務和產品，2-3句，具體說明做什麼",\n  "industry": "所屬產業，例如：半導體設計 / AI伺服器散熱 / 電子代工",\n  "chain": "上游或中游或下游或跨段",\n  "reason": "投資這支股票的主要邏輯，1-2句"\n}';
+
   try {
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
     let data;
     for (const model of models) {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{parts:[{text:`用2-3句話介紹台灣上市公司 ${ticker} ${name} 的主要業務、產品和在供應鏈中的位置。用繁體中文，簡潔具體。`}]}], generationConfig:{maxOutputTokens:300} })
+        body: JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:{maxOutputTokens:600, temperature:0.3} })
       });
       data = await r.json();
       if (data.error && (data.error.code===503||data.error.code===429)) continue;
       break;
     }
-    document.getElementById('si-desc').value = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch(e) { document.getElementById('si-desc').value = ''; alert('生成失敗'); }
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const json = JSON.parse(text.replace(/```json|```/g,'').trim());
+    document.getElementById('si-desc').value = json.desc || '';
+    document.getElementById('si-industry').value = json.industry || '';
+    if (json.chain) {
+      const chainEl = document.getElementById('si-chain');
+      const options = ['上游','中游','下游','跨段'];
+      const match = options.find(o => json.chain.includes(o));
+      if (match) chainEl.value = match;
+    }
+    document.getElementById('si-reason').value = json.reason || '';
+  } catch(e) {
+    document.getElementById('si-desc').value = '';
+    alert('生成失敗：' + e.message);
+  }
 }
 
 
@@ -2774,6 +2822,10 @@ async function testGASConnection() {
 // ======== INIT ========
 updateGeminiStatus();
 if (config.notionToken) document.getElementById('notion-sync-btn').style.display='inline-block';
+// Ensure all state is valid arrays before rendering
+if (!Array.isArray(strategies)) strategies = [];
+if (!Array.isArray(techNotes)) techNotes = [];
+if (!Array.isArray(actionItems)) actionItems = [];
 renderStrategies();
 loadAllData();
 </script>
