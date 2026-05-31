@@ -252,6 +252,7 @@ textarea { resize:vertical; min-height:70px; }
         <div id="holdings-content" style="display:none">
           <div class="summary-row" id="summary-row"></div>
           <div id="holdings-events" style="margin-bottom:16px"></div>
+          <div id="holdings-action" style="margin-bottom:16px"></div>
           <div class="tab-row">
             <button class="tab-btn active" onclick="switchTab('tw',this,'holding-tabs')">台股持倉</button>
             <button class="tab-btn" onclick="switchTab('us',this,'holding-tabs')">美股持倉</button>
@@ -1307,6 +1308,7 @@ function renderHoldings() {
 
   updateSideHoldings();
   renderHoldingsEvents();
+  renderHoldingsAction();
 }
 
 function switchTab(tab, el, group) {
@@ -2395,6 +2397,68 @@ function confirmImportNotes() {
 }
 
 
+
+
+// ======== HOLDINGS ACTION LIST ========
+function renderHoldingsAction() {
+  const el = document.getElementById('holdings-action');
+  if (!el) return;
+
+  const pending = Array.isArray(actionItems) ? actionItems.filter(i => !i.done) : [];
+
+  if (!pending.length) {
+    el.innerHTML = '<div class="card" style="margin-bottom:0">' +
+      '<div class="card-title" style="margin-bottom:8px">今日行動清單' +
+        '<button onclick="nav('notes')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-family:var(--font-sans)">前往筆記分析 →</button>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--muted)">目前沒有待執行項目，到筆記中心貼入筆記後分析</div>' +
+    '</div>';
+    return;
+  }
+
+  const statusIcon = { triggered:'🟢', waiting:'⏳', watching:'👀' };
+  const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
+
+  const twItems = pending.filter(i => !holdings.us.find(h => h.ticker === i.ticker));
+  const usItems = pending.filter(i => holdings.us.find(h => h.ticker === i.ticker));
+
+  const renderGroup = (items, label) => {
+    if (!items.length) return '';
+    return '<div style="font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:8px 0 4px">' + label + '</div>' +
+    items.map(item =>
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(200,191,170,0.3)">' +
+        '<input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer;flex-shrink:0">' +
+        '<div style="min-width:60px"><span class="ticker-badge" style="font-size:10px">' + item.ticker + '</span></div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.strategy||'') + '</div>' +
+          (item.suggestion ? '<div style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + '">' + item.suggestion + '</div>' : '') +
+          (item.earningsAlert ? '<div style="font-size:10px;color:var(--gold)">📅 ' + item.earningsAlert + '</div>' : '') +
+        '</div>' +
+        '<div style="font-size:14px;flex-shrink:0">' + (statusIcon[item.status]||'👀') + '</div>' +
+      '</div>'
+    ).join('');
+  };
+
+  el.innerHTML = '<div class="card" style="margin-bottom:0">' +
+    '<div class="card-title" style="margin-bottom:4px">今日行動清單 <span style="font-size:10px;color:var(--muted)">(' + pending.length + ' 個待執行)</span>' +
+      '<button onclick="nav('notes')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-family:var(--font-sans)">前往分析 →</button>' +
+    '</div>' +
+    renderGroup(twItems, '🇹🇼 台股') +
+    renderGroup(usItems, '🇺🇸 美股') +
+  '</div>';
+}
+
+function executeActionFromHoldings(cb) {
+  const id = cb.getAttribute('data-id');
+  const item = actionItems.find(i => i.id === id);
+  if (!item) return;
+  item.done = true;
+  item.executedAt = new Date().toLocaleDateString('zh-TW');
+  executedItems.push(item);
+  localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
+  localStorage.setItem('invest_executed_items', JSON.stringify(executedItems));
+  renderHoldingsAction();
+}
 
 // ======== HOLDINGS EVENTS ========
 function renderHoldingsEvents() {
