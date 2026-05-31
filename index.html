@@ -1239,9 +1239,9 @@ function renderHoldings() {
     const infoContent = info ? '<div style="margin-bottom:8px"><strong>' + h.ticker + ' ' + h.name + '</strong>' +
       (info.industry ? ' · <span style="color:var(--muted)">' + info.industry + '</span>' : '') +
       (info.chain ? ' · <span style="color:var(--muted)">' + info.chain + '</span>' : '') + '</div>' +
-      (info.desc ? '<div style="margin-bottom:4px;line-height:1.6">' + info.desc + '</div>' : '') +
-      (info.reason ? '<div style="color:var(--muted);margin-top:4px">買入原因：' + info.reason + '</div>' : '') +
-      (info.moat ? '<div style="margin-top:6px;padding:6px 10px;background:var(--paper3);border-radius:4px;font-size:11px"><span style="color:var(--gold);font-weight:600">護城河：</span>' + info.moat + '</div>' : '') : '';
+      (info.desc ? '<div style="margin-bottom:6px;line-height:1.6">' + info.desc + '</div>' : '') +
+      (info.moat ? '<div style="margin-top:6px;padding:6px 10px;background:var(--paper3);border-radius:4px;font-size:11px;line-height:1.6"><span style="color:var(--gold);font-weight:600">🏰 護城河：</span>' + info.moat + '</div>' : '') +
+      (info.reason ? '<div style="color:var(--muted);margin-top:6px;font-size:11px">📌 買入原因：' + info.reason + '</div>' : '') : '';
 
     const stratContent = strat ? '<div style="margin-top:' + (info?'10':'0') + 'px;padding-top:' + (info?'10':'0') + 'px;' + (info?'border-top:1px solid var(--border);':'') + '">' +
       '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">投資策略</div>' +
