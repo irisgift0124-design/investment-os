@@ -2422,16 +2422,24 @@ function confirmImportNotes() {
 function renderHoldingsAction() {
   const el = document.getElementById('holdings-action');
   if (!el) return;
+
+  // Safety check
   if (!Array.isArray(actionItems)) actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
+  if (!Array.isArray(strategies)) strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
+
   const pending = actionItems.filter(i => !i.done);
+
   if (!pending.length) {
     el.innerHTML = '<div class="card" style="margin-bottom:0"><div class="card-title" style="margin-bottom:8px">今日行動清單 <button onclick="nav(\'notes\')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button></div><div style="font-size:12px;color:var(--muted)">目前沒有待執行項目</div></div>';
     return;
   }
+
   const statusIcon = { triggered:'🟢', waiting:'⏳', watching:'👀' };
   const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
+
   const twItems = pending.filter(i => !holdings.us.find(h => h.ticker === i.ticker));
   const usItems = pending.filter(i => holdings.us.find(h => h.ticker === i.ticker));
+
   const renderGroup = (items, label) => {
     if (!items.length) return '';
     return '<div style="font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:8px 0 4px">' + label + '</div>' +
@@ -2440,17 +2448,21 @@ function renderHoldingsAction() {
         '<input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer;flex-shrink:0">' +
         '<div style="min-width:60px"><span class="ticker-badge" style="font-size:10px">' + item.ticker + '</span></div>' +
         '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:11px;color:var(--muted)">' + (item.strategy||'') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.strategy||'') + '</div>' +
           (item.suggestion ? '<div style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + '">' + item.suggestion + '</div>' : '') +
+          (item.earningsAlert ? '<div style="font-size:10px;color:var(--gold)">📅 ' + item.earningsAlert + '</div>' : '') +
         '</div>' +
-        '<div style="font-size:14px">' + (statusIcon[item.status]||'👀') + '</div>' +
+        '<div style="font-size:14px;flex-shrink:0">' + (statusIcon[item.status]||'👀') + '</div>' +
       '</div>'
     ).join('');
   };
+
   el.innerHTML = '<div class="card" style="margin-bottom:0">' +
     '<div class="card-title" style="margin-bottom:4px">今日行動清單 <span style="font-size:10px;color:var(--muted)">(' + pending.length + ' 個待執行)</span>' +
-    '<button onclick="nav(\'notes\')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button></div>' +
-    renderGroup(twItems, '🇹🇼 台股') + renderGroup(usItems, '🇺🇸 美股') +
+      '<button onclick="nav(\'notes\')" + "" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button>' +
+    '</div>' +
+    renderGroup(twItems, '🇹🇼 台股') +
+    renderGroup(usItems, '🇺🇸 美股') +
   '</div>';
 }
 
@@ -2699,9 +2711,6 @@ async function analyzeActionNotes() {
     document.getElementById('action-list').innerHTML = '<div style="color:var(--red);font-size:12px;padding:10px">分析失敗：' + e.message + '</div>';
   }
 }
-
-
-
 </script>
 </body>
 </html>
