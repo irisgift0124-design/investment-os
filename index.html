@@ -2404,10 +2404,15 @@ function renderHoldingsAction() {
   const el = document.getElementById('holdings-action');
   if (!el) return;
 
-  const pending = Array.isArray(actionItems) ? actionItems.filter(i => !i.done) : [];
+  // Safety check
+  if (!Array.isArray(actionItems)) actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
+  if (!Array.isArray(strategies)) strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
+
+  const pending = actionItems.filter(i => !i.done);
 
   if (!pending.length) {
-    el.innerHTML = '<div class="card" style="margin-bottom:0">' +
+    } catch(e) { console.error('renderHoldingsEvents error:', e); return; }
+  el.innerHTML = '<div class="card" style="margin-bottom:0">' +
       '<div class="card-title" style="margin-bottom:8px">今日行動清單' +
         '<button onclick="nav('notes')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-family:var(--font-sans)">前往筆記分析 →</button>' +
       '</div>' +
@@ -2464,6 +2469,7 @@ function executeActionFromHoldings(cb) {
 function renderHoldingsEvents() {
   const el = document.getElementById('holdings-events');
   if (!el) return;
+  try {
 
   const today = new Date();
   const cutoff = new Date(today);
