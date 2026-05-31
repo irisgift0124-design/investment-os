@@ -586,6 +586,39 @@ textarea { resize:vertical; min-height:70px; }
   <div class="mobile-nav-item" id="mn-settings" onclick="nav('settings')"><span>⚙</span><span>設定</span></div>
 </div>
 
+
+<!-- Status Modal -->
+<div class="modal-overlay" id="status-modal">
+  <div class="modal" style="max-width:400px">
+    <h2 id="status-modal-title">編輯狀態</h2>
+    <div class="input-group">
+      <label class="input-label">目前狀態</label>
+      <input type="text" id="status-input" placeholder="例如：等回檔、持續持有、分批買入、漲多觀察...">
+      <div class="input-hint" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+        <span onclick="setStatus('等回檔')" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">等回檔</span>
+        <span onclick="setStatus('持續持有')" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">持續持有</span>
+        <span onclick="setStatus('分批買入')" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">分批買入</span>
+        <span onclick="setStatus('觀察中')" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">觀察中</span>
+        <span onclick="setStatus('待觀察')" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">待觀察</span>
+        <span onclick="setStatus('漲多賣出')" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">漲多賣出</span>
+      </div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">持有期限</label>
+      <div style="display:flex;gap:8px">
+        <button onclick="setPeriod('短')" class="btn btn-outline btn-sm" style="flex:1">短期</button>
+        <button onclick="setPeriod('中')" class="btn btn-outline btn-sm" style="flex:1">中期</button>
+        <button onclick="setPeriod('長')" class="btn btn-outline btn-sm" style="flex:1">長期</button>
+        <button onclick="setPeriod('')" class="btn btn-outline btn-sm" style="flex:1">清除</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('status-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveStatus()">儲存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Trade Modal -->
 <div class="modal-overlay" id="trade-modal">
   <div class="modal">
@@ -766,6 +799,9 @@ let config = JSON.parse(localStorage.getItem('invest_config') || '{}');
 let strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
 let cash = JSON.parse(localStorage.getItem('invest_cash') || '{"yuanta_twd":0,"taishin_twd":0,"ib_usd":0,"firstrade_usd":0,"usd_rate":31.5}');
 let holdings = { tw: [], us: [], history: [], dividends: [], allTrades: [] };
+let sheetStockInfos = {}; // from Google Sheet 股票簡介 tab
+let stockStatuses = JSON.parse(localStorage.getItem('invest_stock_statuses') || '{}'); // 手動狀態
+let stockPeriods = JSON.parse(localStorage.getItem('invest_stock_periods') || '{}'); // 短中長分類
 let prices = {};
 let chatHistory = [];
 let editingStrategyId = null;
@@ -827,6 +863,17 @@ async function loadAllData() {
 
     holdings.tw = twHoldings.map(h => enrichHolding(h, 'tw'));
     holdings.us = usHoldings.map(h => enrichHolding(h, 'us'));
+
+    // Load stock infos from Sheet
+    if (json.stockInfos) {
+      sheetStockInfos = {};
+      json.stockInfos.forEach(row => {
+        if (row[0]) sheetStockInfos[String(row[0]).trim()] = {
+          name: row[1] || '', industry: row[2] || '',
+          chain: row[3] || '', desc: row[4] || '', reason: row[5] || ''
+        };
+      });
+    }
 
     // Load cloud settings
     await loadSettingsFromCloud(json.settings);
@@ -1172,45 +1219,83 @@ function renderHoldings() {
     <div class="summary-card"><div class="summary-label">美股現金</div><div class="summary-value">NT$ ${Math.round(usCashTWD).toLocaleString()}</div><div class="summary-sub">$ ${Math.round(usCashUSD).toLocaleString()} 美元</div></div>
   `;
 
-  // TW
-  document.getElementById('tw-tbody').innerHTML = holdings.tw.length ? holdings.tw.map(h => {
-    const mv = h.marketValue ? 'NT$ '+Math.round(h.marketValue).toLocaleString() : '—';
-    const ur = h.unrealized !== null ? `<span class="${h.unrealized>=0?'pnl-up':'pnl-down'}">${h.unrealized>=0?'+':''}${Math.round(h.unrealized).toLocaleString()}</span>` : '—';
-    const wd = h.withDivReturn !== null ? `<span class="${h.withDivReturn>=0?'pnl-up':'pnl-down'}">${h.withDivReturn>=0?'+':''}${Math.round(h.withDivReturn).toLocaleString()}</span>` : '—';
-    const rr = h.returnRate !== null ? `<span class="${h.returnRate>=0?'pnl-up':'pnl-down'}">${h.returnRate>=0?'+':''}${h.returnRate.toFixed(1)}%</span>` : '—';
-    const cp = h.currentPrice ? h.currentPrice.toFixed(2) : '—';
-    const info = stockInfos[h.ticker];
-    const strat = strategies.find(s => s.ticker === h.ticker);
-    const hasInfo = info || strat;
-    const infoRow = hasInfo ? '<tr id="info-' + h.ticker + '" style="display:none"><td colspan="9" style="padding:12px 16px;background:var(--paper2);font-size:12px;line-height:1.8;border-bottom:1px solid var(--border)">' +
-      (info ? '<div style="margin-bottom:8px"><strong>' + h.ticker + ' ' + h.name + '</strong>' + (info.industry?' · <span style="color:var(--muted)">'+info.industry+'</span>':'') + (info.chain?' · <span style="color:var(--muted)">'+info.chain+'</span>':'') + '</div>' +
-      (info.desc ? '<div style="margin-bottom:4px">' + info.desc + '</div>' : '') +
-      (info.reason ? '<div style="color:var(--muted)">買入原因：' + info.reason + '</div>' : '') : '') +
-      (strat ? '<div style="margin-top:' + (info?'10':'0') + 'px;padding-top:' + (info?'10':'0') + 'px;' + (info?'border-top:1px solid var(--border);':'') + '">' +
+  // Helper: render one holding row
+  const renderHoldingRow = (h, market) => {
+    const isTW = market === 'tw';
+    const mv = isTW ? (h.marketValue ? 'NT$ '+Math.round(h.marketValue).toLocaleString() : '—') : (h.marketValue ? '$ '+h.marketValue.toFixed(2) : '—');
+    const ur = h.unrealized !== null ? '<span class="' + (h.unrealized>=0?'pnl-up':'pnl-down') + '">' + (h.unrealized>=0?'+':'') + (isTW?Math.round(h.unrealized).toLocaleString():h.unrealized.toFixed(2)) + '</span>' : '—';
+    const wd = isTW && h.withDivReturn !== null ? '<span class="' + (h.withDivReturn>=0?'pnl-up':'pnl-down') + '">' + (h.withDivReturn>=0?'+':'') + Math.round(h.withDivReturn).toLocaleString() + '</span>' : (isTW ? '—' : null);
+    const rr = h.returnRate !== null ? '<span class="' + (h.returnRate>=0?'pnl-up':'pnl-down') + '">' + (h.returnRate>=0?'+':'') + h.returnRate.toFixed(1) + '%</span>' : '—';
+    const cp = h.currentPrice ? (isTW ? h.currentPrice.toFixed(2) : '$ '+h.currentPrice.toFixed(2)) : '—';
+    const info = sheetStockInfos[h.ticker] || stockInfos[h.ticker]; // Sheet first, fallback to local
+    const strat = Array.isArray(strategies) ? strategies.find(s => s.ticker === h.ticker) : null;
+    const status = stockStatuses[h.ticker] || '';
+    const period = stockPeriods[h.ticker] || '';
+
+    const statusBadge = status ? '<span style="font-size:10px;padding:1px 7px;border-radius:3px;background:var(--paper3);color:var(--muted);margin-left:6px">' + status + '</span>' : '';
+    const periodBadge = period ? '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:var(--ink);color:var(--paper);margin-left:4px">' + period + '</span>' : '';
+
+    const infoContent = info ? '<div style="margin-bottom:8px"><strong>' + h.ticker + ' ' + h.name + '</strong>' +
+      (info.industry ? ' · <span style="color:var(--muted)">' + info.industry + '</span>' : '') +
+      (info.chain ? ' · <span style="color:var(--muted)">' + info.chain + '</span>' : '') + '</div>' +
+      (info.desc ? '<div style="margin-bottom:4px;line-height:1.6">' + info.desc + '</div>' : '') +
+      (info.reason ? '<div style="color:var(--muted)">買入原因：' + info.reason + '</div>' : '') : '';
+
+    const stratContent = strat ? '<div style="margin-top:' + (info?'10':'0') + 'px;padding-top:' + (info?'10':'0') + 'px;' + (info?'border-top:1px solid var(--border);':'') + '">' +
       '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">投資策略</div>' +
       (strat.buyPrice ? '<div>目標買入：<strong>' + strat.buyPrice + '</strong>' + (strat.sellPrice?' ｜ 目標賣出：<strong>'+strat.sellPrice+'</strong>':'') + (strat.stopLoss?' ｜ 停損：<span style="color:var(--red)">'+strat.stopLoss+'</span>':'') + '</div>' : '') +
       (strat.reason ? '<div style="color:var(--muted);margin-top:4px">' + strat.reason + '</div>' : '') +
-      '</div>' : '') +
-      '<div style="margin-top:10px;display:flex;gap:8px">' +
-      '<button onclick="editStockInfo(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯簡介</button>' +
-      (strat ? '<button onclick="editStrat(this)" data-id="' + strat.id + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯策略</button>' :
-      '<button onclick="openStrategyModal()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">新增策略</button>') +
-      '</div></td></tr>' : '';
-    return `<tr onclick="toggleStockInfo('${h.ticker}')" style="cursor:pointer">
-      <td><span class="ticker-badge">${h.ticker}</span></td>
-      <td>${h.name} ${info?'<span style="font-size:10px;color:var(--gold)">●</span>':'<span style="font-size:10px;color:var(--border)" title="點擊新增簡介">○</span>'}</td>
-      <td>${h.qty.toLocaleString()}</td><td>${h.avgCost.toFixed(2)}</td><td>${cp}</td><td>${mv}</td><td>${ur}</td><td>${wd}</td><td>${rr}</td>
-    </tr>${infoRow}`;
-  }).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">無台股持倉</td></tr>';
+      '</div>' : '';
 
-  // US
-  document.getElementById('us-tbody').innerHTML = holdings.us.length ? holdings.us.map(h => {
-    const mv = h.marketValue ? '$ '+h.marketValue.toFixed(2) : '—';
-    const ur = h.unrealized !== null ? `<span class="${h.unrealized>=0?'pnl-up':'pnl-down'}">${h.unrealized>=0?'+':''}${h.unrealized.toFixed(2)}</span>` : '—';
-    const rr = h.returnRate !== null ? `<span class="${h.returnRate>=0?'pnl-up':'pnl-down'}">${h.returnRate>=0?'+':''}${h.returnRate.toFixed(1)}%</span>` : '—';
-    const cp = h.currentPrice ? '$ '+h.currentPrice.toFixed(2) : '—';
-    return `<tr><td><span class="ticker-badge">${h.ticker}</span></td><td>${h.name}</td><td>${h.qty}</td><td>$ ${h.avgCost.toFixed(2)}</td><td>${cp}</td><td>${mv}</td><td>${ur}</td><td>${rr}</td></tr>`;
-  }).join('') : '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">無美股持倉</td></tr>';
+    const editButtons = '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button onclick="openStatusModal(this)" data-ticker="' + h.ticker + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯狀態</button>' +
+      '<button onclick="editStockInfo(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">公司簡介</button>' +
+      (strat ? '<button onclick="editStrat(this)" data-id="' + strat.id + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯策略</button>' :
+      '<button onclick="openStrategyForTicker(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">新增策略</button>') +
+      '</div>';
+
+    const infoRow = '<tr id="info-' + h.ticker + '" style="display:none"><td colspan="' + (isTW?'9':'8') + '" style="padding:12px 16px;background:var(--paper2);font-size:12px;line-height:1.8;border-bottom:1px solid var(--border)">' +
+      (infoContent || stratContent ? infoContent + stratContent : '<div style="color:var(--muted)">尚未填寫簡介，點「公司簡介」新增</div>') +
+      editButtons + '</td></tr>';
+
+    const hasDot = info || strat;
+    const mainRow = '<tr onclick="toggleStockInfo(this.dataset.t)" data-t="' + h.ticker + '" style="cursor:pointer">' +
+      '<td><span class="ticker-badge">' + h.ticker + '</span>' + periodBadge + '</td>' +
+      '<td>' + h.name + statusBadge + ' ' + (hasDot ? '<span style="font-size:10px;color:var(--gold)">●</span>' : '<span style="font-size:10px;color:var(--border)">○</span>') + '</td>' +
+      '<td>' + h.qty.toLocaleString() + '</td>' +
+      '<td>' + (isTW ? h.avgCost.toFixed(2) : '$ '+h.avgCost.toFixed(2)) + '</td>' +
+      '<td>' + cp + '</td>' +
+      '<td>' + mv + '</td>' +
+      '<td>' + ur + '</td>' +
+      (isTW && wd !== null ? '<td>' + wd + '</td>' : (isTW ? '<td>—</td>' : '')) +
+      '<td>' + rr + '</td>' +
+      '</tr>';
+
+    return mainRow + infoRow;
+  };
+
+  // Sort TW by period (短→中→長→未設定)
+  const periodOrder = {'短':0,'中':1,'長':2};
+  const sortedTW = [...holdings.tw].sort((a,b) => {
+    const pa = periodOrder[stockPeriods[a.ticker]] ?? 3;
+    const pb = periodOrder[stockPeriods[b.ticker]] ?? 3;
+    return pa - pb;
+  });
+
+  // TW
+  document.getElementById('tw-tbody').innerHTML = sortedTW.length
+    ? sortedTW.map(h => renderHoldingRow(h, 'tw')).join('')
+    : '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">無台股持倉</td></tr>';
+
+  // US (same renderHoldingRow)
+  const sortedUS = [...holdings.us].sort((a,b) => {
+    const pa = periodOrder[stockPeriods[a.ticker]] ?? 3;
+    const pb = periodOrder[stockPeriods[b.ticker]] ?? 3;
+    return pa - pb;
+  });
+  document.getElementById('us-tbody').innerHTML = sortedUS.length
+    ? sortedUS.map(h => renderHoldingRow(h, 'us')).join('')
+    : '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">無美股持倉</td></tr>';
 
   // History
   document.getElementById('history-tbody').innerHTML = holdings.history.slice(0,30).map(t =>
@@ -1963,15 +2048,10 @@ function editStrat(btn) {
   openStrategyModal(id);
 }
 
-function toggleStockInfo(ticker) {
+function toggleStockInfo(elOrTicker) {
+  const ticker = typeof elOrTicker === 'string' ? elOrTicker : elOrTicker.getAttribute('data-t');
   const el = document.getElementById('info-' + ticker);
-  const strat = strategies.find(s => s.ticker === ticker);
-  const info = stockInfos[ticker];
-  if (!el) {
-    // No info AND no strategy - open stock info modal
-    if (!info && !strat) openStockInfoModal(ticker, holdings.tw.find(h=>h.ticker===ticker)?.name||ticker);
-    return;
-  }
+  if (!el) return;
   el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
 
@@ -2308,6 +2388,45 @@ function confirmImportNotes() {
   document.getElementById('action-input').value = existing ? existing + '\n' + imported : imported;
 
   closeModal('import-notes-modal');
+}
+
+
+// ======== STATUS & PERIOD ========
+let _editingStatusTicker = '';
+
+function openStatusModal(btn) {
+  _editingStatusTicker = btn.getAttribute('data-ticker');
+  document.getElementById('status-modal-title').textContent = _editingStatusTicker + ' 編輯狀態';
+  document.getElementById('status-input').value = stockStatuses[_editingStatusTicker] || '';
+  document.getElementById('status-modal').classList.add('show');
+}
+
+function setStatus(val) {
+  document.getElementById('status-input').value = val;
+}
+
+function setPeriod(val) {
+  if (!_editingStatusTicker) return;
+  stockPeriods[_editingStatusTicker] = val;
+  localStorage.setItem('invest_stock_periods', JSON.stringify(stockPeriods));
+}
+
+function saveStatus() {
+  if (!_editingStatusTicker) return;
+  stockStatuses[_editingStatusTicker] = document.getElementById('status-input').value.trim();
+  localStorage.setItem('invest_stock_statuses', JSON.stringify(stockStatuses));
+  closeModal('status-modal');
+  renderHoldings();
+}
+
+function openStrategyForTicker(btn) {
+  const ticker = btn.getAttribute('data-ticker');
+  const name = btn.getAttribute('data-name');
+  openStrategyModal();
+  setTimeout(() => {
+    document.getElementById('m-ticker').value = ticker;
+    document.getElementById('m-name').value = name;
+  }, 100);
 }
 
 // ======== NOTES CENTER ========
