@@ -832,8 +832,24 @@ function nav(page) {
 // ======== DATA LOADING ========
 async function loadAllData() {
   showHoldingsLoading();
+
+  // Show cached data immediately if available
+  const cachedPrices = JSON.parse(localStorage.getItem('invest_prices_cache') || '{}');
+  const cachedTW = JSON.parse(localStorage.getItem('invest_holdings_tw') || 'null');
+  const cachedUS = JSON.parse(localStorage.getItem('invest_holdings_us') || 'null');
+  if (cachedTW && cachedUS) {
+    holdings.tw = cachedTW;
+    holdings.us = cachedUS;
+    prices = cachedPrices;
+    renderHoldings();
+    document.getElementById('gs-status').innerHTML = '<span class="status-dot yellow"></span>同步中...';
+  }
+
   try {
-    const res = await fetch(GAS_URL);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    const res = await fetch(GAS_URL, { signal: controller.signal });
+    clearTimeout(timeout);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
 
@@ -884,6 +900,9 @@ async function loadAllData() {
     if (!Array.isArray(strategies)) strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
     if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
     if (!Array.isArray(actionItems)) actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
+    // Cache holdings for next load
+    localStorage.setItem('invest_holdings_tw', JSON.stringify(holdings.tw));
+    localStorage.setItem('invest_holdings_us', JSON.stringify(holdings.us));
     renderHoldings();
     syncCashFromTrades();
     updateGSStatus(true);
