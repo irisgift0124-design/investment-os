@@ -1453,11 +1453,48 @@ function renderCash() {
   const diffIB = parseFloat(((cash.ib_usd||0) - (b.ib_usd||0)).toFixed(2));
   const diffFT = parseFloat(((cash.firstrade_usd||0) - (b.firstrade_usd||0)).toFixed(2));
   const diffStr = (d, cur) => d === 0 ? '' : `<div style="font-size:10px;color:${d>0?'var(--green)':'var(--red)'}">交易連動 ${d>0?'+':''}${cur}${Math.abs(d).toLocaleString()}</div>`;
+  const cashBtnStyle = 'font-size:10px;padding:3px 8px;border:1px solid var(--border);border-radius:3px;background:none;cursor:pointer;font-family:var(--font-sans)';
   document.getElementById('cash-display').innerHTML = `
-    <div class="cash-card"><div class="cash-broker">元大</div><div class="cash-amount">NT$ ${Math.round(cash.yuanta_twd||0).toLocaleString()}</div><div class="cash-currency">台幣</div>${diffStr(diffYuanta,'NT$')}</div>
-    <div class="cash-card"><div class="cash-broker">台新</div><div class="cash-amount">NT$ ${Math.round(cash.taishin_twd||0).toLocaleString()}</div><div class="cash-currency">台幣</div>${diffStr(diffTaishin,'NT$')}</div>
-    <div class="cash-card"><div class="cash-broker">Interactive Brokers</div><div class="cash-amount">$ ${(cash.ib_usd||0).toLocaleString()}</div><div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.ib_usd||0)}</div>${diffStr(diffIB,'$')}</div>
-    <div class="cash-card"><div class="cash-broker">Firstrade</div><div class="cash-amount">$ ${(cash.firstrade_usd||0).toLocaleString()}</div><div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.firstrade_usd||0)}</div>${diffStr(diffFT,'$')}</div>
+    <div class="cash-card">
+      <div class="cash-broker">元大</div>
+      <div class="cash-amount">NT$ ${Math.round(cash.yuanta_twd||0).toLocaleString()}</div>
+      <div class="cash-currency">台幣</div>
+      ${diffStr(diffYuanta,'NT$')}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button style="${cashBtnStyle}" onclick="openDeposit('yuanta_twd','元大','TWD',1)">＋ 入金</button>
+        <button style="${cashBtnStyle}" onclick="openDeposit('yuanta_twd','元大','TWD',-1)">－ 出金</button>
+      </div>
+    </div>
+    <div class="cash-card">
+      <div class="cash-broker">台新</div>
+      <div class="cash-amount">NT$ ${Math.round(cash.taishin_twd||0).toLocaleString()}</div>
+      <div class="cash-currency">台幣</div>
+      ${diffStr(diffTaishin,'NT$')}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button style="${cashBtnStyle}" onclick="openDeposit('taishin_twd','台新','TWD',1)">＋ 入金</button>
+        <button style="${cashBtnStyle}" onclick="openDeposit('taishin_twd','台新','TWD',-1)">－ 出金</button>
+      </div>
+    </div>
+    <div class="cash-card">
+      <div class="cash-broker">Interactive Brokers</div>
+      <div class="cash-amount">$ ${(cash.ib_usd||0).toLocaleString()}</div>
+      <div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.ib_usd||0)}</div>
+      ${diffStr(diffIB,'$')}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button style="${cashBtnStyle}" onclick="openDeposit('ib_usd','Interactive Brokers','USD',1)">＋ 入金</button>
+        <button style="${cashBtnStyle}" onclick="openDeposit('ib_usd','Interactive Brokers','USD',-1)">－ 出金</button>
+      </div>
+    </div>
+    <div class="cash-card">
+      <div class="cash-broker">Firstrade</div>
+      <div class="cash-amount">$ ${(cash.firstrade_usd||0).toLocaleString()}</div>
+      <div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.firstrade_usd||0)}</div>
+      ${diffStr(diffFT,'$')}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button style="${cashBtnStyle}" onclick="openDeposit('firstrade_usd','Firstrade','USD',1)">＋ 入金</button>
+        <button style="${cashBtnStyle}" onclick="openDeposit('firstrade_usd','Firstrade','USD',-1)">－ 出金</button>
+      </div>
+    </div>
   `;
 
   const twMV = holdings.tw.reduce((s,h)=>s+(h.marketValue||h.totalCost),0);
@@ -2898,6 +2935,41 @@ function saveActionItem() {
   if (stockStatus) renderHoldings();
 }
 
+
+// ======== DEPOSIT / WITHDRAW ========
+let _depositField = '', _depositDirection = 1;
+
+function openDeposit(field, brokerName, currency, direction) {
+  _depositField = field;
+  _depositDirection = direction;
+  const isDeposit = direction === 1;
+  document.getElementById('deposit-modal-title').textContent = isDeposit ? '入金' : '出金';
+  document.getElementById('deposit-broker-display').textContent = brokerName + '（' + currency + '）';
+  document.getElementById('deposit-amount').value = '';
+  document.getElementById('deposit-note').value = '';
+  document.getElementById('deposit-confirm-btn').textContent = isDeposit ? '確認入金' : '確認出金';
+  document.getElementById('deposit-modal').classList.add('show');
+}
+
+function confirmDeposit() {
+  const amount = parseFloat(document.getElementById('deposit-amount').value) || 0;
+  if (!amount || amount <= 0) return alert('請填入金額');
+
+  // Update base cash
+  const base = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
+  base[_depositField] = (parseFloat(base[_depositField]) || 0) + _depositDirection * amount;
+  localStorage.setItem('invest_cash_base', JSON.stringify(base));
+  Object.assign(cash, base);
+  localStorage.setItem('invest_cash', JSON.stringify(cash));
+
+  // Save to cloud
+  saveSettingToCloud('cash', JSON.stringify(base));
+
+  closeModal('deposit-modal');
+  syncCashFromTrades();
+  renderCash();
+}
+
 // ======== INIT ========
 updateGeminiStatus();
 if (config.notionToken) document.getElementById('notion-sync-btn').style.display='inline-block';
@@ -2957,6 +3029,29 @@ loadAllData();
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('action-item-modal')">取消</button>
       <button class="btn btn-primary" onclick="saveActionItem()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deposit/Withdraw Modal -->
+<div class="modal-overlay" id="deposit-modal">
+  <div class="modal" style="max-width:380px">
+    <h2 id="deposit-modal-title">入金</h2>
+    <div class="input-group">
+      <label class="input-label">帳戶</label>
+      <div id="deposit-broker-display" style="font-size:14px;font-weight:600;padding:8px 0"></div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">金額</label>
+      <input type="number" id="deposit-amount" placeholder="0" min="0" step="any">
+    </div>
+    <div class="input-group">
+      <label class="input-label">備註（選填）</label>
+      <input type="text" id="deposit-note" placeholder="例如：薪資入金、轉帳">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('deposit-modal')">取消</button>
+      <button class="btn btn-primary" id="deposit-confirm-btn" onclick="confirmDeposit()">確認</button>
     </div>
   </div>
 </div>
