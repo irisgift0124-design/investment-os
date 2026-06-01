@@ -2801,6 +2801,7 @@ function openActionItemModal(id = null) {
       document.getElementById('ai-suggestion').value = item.suggestion || '';
       document.getElementById('ai-status').value = item.status || 'waiting';
       document.getElementById('ai-urgency').value = item.urgency || 'medium';
+      document.getElementById('ai-stock-status').value = stockStatuses[item.ticker] || '';
     }
   } else {
     document.getElementById('ai-ticker').value = '';
@@ -2809,14 +2810,23 @@ function openActionItemModal(id = null) {
     document.getElementById('ai-suggestion').value = '';
     document.getElementById('ai-status').value = 'waiting';
     document.getElementById('ai-urgency').value = 'medium';
+    document.getElementById('ai-stock-status').value = '';
   }
   document.getElementById('action-item-modal').classList.add('show');
+}
+
+function autoFillName() {
+  const ticker = document.getElementById('ai-ticker').value.trim();
+  const h = [...holdings.tw, ...holdings.us].find(h => h.ticker === ticker);
+  if (h) document.getElementById('ai-name').value = h.name;
 }
 
 function saveActionItem() {
   const ticker = document.getElementById('ai-ticker').value.trim();
   const name = document.getElementById('ai-name').value.trim();
   if (!ticker) return alert('請填入股票代號');
+
+  const stockStatus = document.getElementById('ai-stock-status').value.trim();
 
   const data = {
     id: _editingActionId || Date.now().toString(),
@@ -2835,10 +2845,17 @@ function saveActionItem() {
     actionItems.unshift(data);
   }
 
+  // Sync stock status to holdings display
+  if (stockStatus) {
+    stockStatuses[ticker] = stockStatus;
+    localStorage.setItem('invest_stock_statuses', JSON.stringify(stockStatuses));
+  }
+
   localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
   closeModal('action-item-modal');
   renderHoldingsAction();
   renderActionItems();
+  if (stockStatus) renderHoldings();
 }
 
 // ======== INIT ========
@@ -2855,27 +2872,35 @@ loadAllData();
 <div class="modal-overlay" id="action-item-modal">
   <div class="modal" style="max-width:480px">
     <h2 id="action-item-modal-title">新增行動項目</h2>
-    <div class="form-grid">
-      <div class="input-group">
-        <label class="input-label">股票代號</label>
-        <input type="text" id="ai-ticker" placeholder="例如：6515">
-      </div>
-      <div class="input-group">
-        <label class="input-label">股票名稱</label>
-        <input type="text" id="ai-name" placeholder="例如：穎崴">
+    <div class="input-group">
+      <label class="input-label">股票代號 / 名稱</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="ai-ticker" placeholder="代號 例如：6515" oninput="autoFillName()" style="width:40%">
+        <input type="text" id="ai-name" placeholder="名稱 例如：穎崴" style="flex:1">
       </div>
     </div>
     <div class="input-group">
-      <label class="input-label">策略</label>
+      <label class="input-label">策略筆記</label>
       <input type="text" id="ai-strategy" placeholder="例如：等回檔 450 再買">
     </div>
     <div class="input-group">
-      <label class="input-label">AI 建議</label>
-      <textarea id="ai-suggestion" style="height:80px;resize:none" placeholder="具體操作建議"></textarea>
+      <label class="input-label">建議內容</label>
+      <textarea id="ai-suggestion" style="height:70px;resize:none" placeholder="具體操作建議"></textarea>
+    </div>
+    <div class="input-group">
+      <label class="input-label">持倉狀態標籤（會同步顯示在持倉頁面）</label>
+      <input type="text" id="ai-stock-status" placeholder="例如：等回檔、持續持有、分批買入、觀察中">
+      <div class="input-hint" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+        <span onclick="document.getElementById('ai-stock-status').value='等回檔'" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">等回檔</span>
+        <span onclick="document.getElementById('ai-stock-status').value='持續持有'" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">持續持有</span>
+        <span onclick="document.getElementById('ai-stock-status').value='分批買入'" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">分批買入</span>
+        <span onclick="document.getElementById('ai-stock-status').value='觀察中'" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">觀察中</span>
+        <span onclick="document.getElementById('ai-stock-status').value='漲多賣出'" style="font-size:10px;padding:2px 8px;background:var(--paper3);border-radius:3px;cursor:pointer">漲多賣出</span>
+      </div>
     </div>
     <div class="form-grid">
       <div class="input-group">
-        <label class="input-label">狀態</label>
+        <label class="input-label">行動狀態</label>
         <select id="ai-status">
           <option value="waiting">⏳ 等待</option>
           <option value="watching">👀 觀察</option>
