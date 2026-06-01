@@ -303,16 +303,10 @@ textarea { resize:vertical; min-height:70px; }
       <div class="content">
         <div class="cash-grid" id="cash-display"></div>
         <div class="card">
-          <div class="card-title">編輯現金餘額</div>
-          <div class="form-grid">
-            <div class="input-group"><label class="input-label">元大（台幣）</label><input type="number" id="cash-yuanta-twd" placeholder="0"></div>
-            <div class="input-group"><label class="input-label">台新（台幣）</label><input type="number" id="cash-taishin-twd" placeholder="0"></div>
-            <div class="input-group"><label class="input-label">IB（美金）</label><input type="number" id="cash-ib-usd" placeholder="0"></div>
-            <div class="input-group"><label class="input-label">Firstrade（美金）</label><input type="number" id="cash-firstrade-usd" placeholder="0"></div>
+          <div class="card-title">近三個月出入金紀錄 <span id="deposit-count" style="font-size:10px;color:var(--muted)"></span></div>
+          <div id="deposit-history-list">
+            <div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無入金/出金紀錄</div>
           </div>
-          <div class="input-group"><label class="input-label">USD/TWD 匯率</label><input type="number" id="usd-rate" placeholder="31.5" step="0.1"></div>
-          <div style="font-size:11px;color:var(--muted);margin-top:8px">填入連動起始日當天的實際帳戶餘額，儲存後系統自動計算之後交易的影響。</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">台股連動起始：2026/05/18 ｜ 美股連動起始：2026/05/20</div>
         </div>
         <div class="card">
           <div class="card-title">總資產概覽</div>
@@ -883,6 +877,13 @@ async function loadAllData() {
       prices = json.prices;
       localStorage.setItem('invest_prices_cache', JSON.stringify(prices));
       localStorage.setItem('invest_prices_cache_time', Date.now().toString());
+    }
+
+    // Auto-update USD/TWD rate from GAS prices
+    if (json.usdRate && json.usdRate > 0) {
+      cash.usd_rate = json.usdRate;
+      const base = JSON.parse(localStorage.getItem('invest_cash_base') || 'null');
+      if (base) { base.usd_rate = json.usdRate; localStorage.setItem('invest_cash_base', JSON.stringify(base)); }
     }
 
     holdings.tw = twHoldings.map(h => enrichHolding(h, 'tw'));
@@ -1500,6 +1501,7 @@ function renderCash() {
   const twMV = holdings.tw.reduce((s,h)=>s+(h.marketValue||h.totalCost),0);
   const usMV = holdings.us.reduce((s,h)=>s+(h.marketValue||h.totalCost)*rate,0);
 
+  renderDepositHistory();
   document.getElementById('total-assets').innerHTML = `
     <table class="data-table">
       <tr><td>台股持倉市值</td><td class="pnl-up">NT$ ${Math.round(twMV).toLocaleString()}</td></tr>
@@ -2954,6 +2956,20 @@ function openDeposit(field, brokerName, currency, direction) {
 function confirmDeposit() {
   const amount = parseFloat(document.getElementById('deposit-amount').value) || 0;
   if (!amount || amount <= 0) return alert('請填入金額');
+  const note = document.getElementById('deposit-note').value.trim();
+
+  // Save to history
+  const history = JSON.parse(localStorage.getItem('invest_deposit_history') || '[]');
+  history.unshift({
+    id: Date.now().toString(),
+    field: _depositField,
+    broker: document.getElementById('deposit-broker-display').textContent,
+    amount,
+    direction: _depositDirection,
+    note,
+    date: new Date().toLocaleDateString('zh-TW')
+  });
+  localStorage.setItem('invest_deposit_history', JSON.stringify(history));
 
   // Update base cash
   const base = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
@@ -2961,13 +2977,56 @@ function confirmDeposit() {
   localStorage.setItem('invest_cash_base', JSON.stringify(base));
   Object.assign(cash, base);
   localStorage.setItem('invest_cash', JSON.stringify(cash));
-
-  // Save to cloud
   saveSettingToCloud('cash', JSON.stringify(base));
 
   closeModal('deposit-modal');
   syncCashFromTrades();
   renderCash();
+}
+
+function renderDepositHistory() {
+  const el = document.getElementById('deposit-history-list');
+  if (!el) return;
+  const history = JSON.parse(localStorage.getItem('invest_deposit_history') || '[]');
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
+  const recent = history.filter(h => {
+    const d = new Date(h.date.replace(/\//g, '-'));
+    return d >= threeMonthsAgo;
+  });
+
+  const countEl = document.getElementById('deposit-count');
+  if (countEl) countEl.textContent = '（' + recent.length + ' 筆）';
+
+  if (!recent.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無入金/出金紀錄</div>';
+    return;
+  }
+
+  el.innerHTML = '<table class="data-table"><thead><tr><th>日期</th><th>帳戶</th><th>類型</th><th>金額</th><th>備註</th><th></th></tr></thead><tbody>' +
+    recent.map(h => {
+      const isUSD = h.field.includes('usd');
+      const cur = isUSD ? '$' : 'NT$';
+      const isIn = h.direction === 1;
+      return '<tr>' +
+        '<td>' + h.date + '</td>' +
+        '<td style="font-size:11px">' + (h.broker||'').split('（')[0] + '</td>' +
+        '<td><span style="font-size:11px;padding:1px 7px;border-radius:3px;background:' + (isIn?'rgba(26,92,46,0.1)':'rgba(139,32,32,0.1)') + ';color:' + (isIn?'var(--green)':'var(--red)') + '">' + (isIn?'入金':'出金') + '</span></td>' +
+        '<td class="' + (isIn?'pnl-up':'pnl-down') + '">' + (isIn?'＋':'－') + cur + ' ' + h.amount.toLocaleString() + '</td>' +
+        '<td style="font-size:11px;color:var(--muted)">' + (h.note||'—') + '</td>' +
+        '<td><button data-did="' + h.id + '" onclick="deleteDeposit(this.getAttribute(\'data-did\'))" style="font-size:10px;background:none;border:none;color:var(--muted);cursor:pointer">✕</button></td>' +
+        '</tr>';
+    }).join('') +
+  '</tbody></table>';
+}
+
+function deleteDeposit(id) {
+  if (!confirm('確定刪除這筆紀錄？（不會還原金額）')) return;
+  let history = JSON.parse(localStorage.getItem('invest_deposit_history') || '[]');
+  history = history.filter(h => h.id !== id);
+  localStorage.setItem('invest_deposit_history', JSON.stringify(history));
+  renderDepositHistory();
 }
 
 // ======== INIT ========
