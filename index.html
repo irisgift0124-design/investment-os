@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -1285,6 +1285,7 @@ function renderHoldings() {
 
     const infoRow = '<tr id="info-' + h.ticker + '" style="display:none"><td colspan="' + (isTW?'9':'8') + '" style="padding:12px 16px;background:var(--paper2);font-size:12px;line-height:1.8;border-bottom:1px solid var(--border)">' +
       (infoContent || stratContent ? infoContent + stratContent : '<div style="color:var(--muted)">尚未填寫簡介，點「公司簡介」新增</div>') +
+      actionContent +
       editButtons + '</td></tr>';
 
     const hasDot = info || strat;
