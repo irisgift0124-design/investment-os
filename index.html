@@ -2795,8 +2795,8 @@ function openActionItemModal(id = null) {
   if (id) {
     const item = actionItems.find(i => String(i.id) === String(id));
     if (item) {
-      document.getElementById('ai-ticker').value = item.ticker || '';
-      document.getElementById('ai-name').value = item.name || '';
+      document.getElementById('ai-ticker').value = (item.tickers ? item.tickers.map(r => r.name||r.ticker).join(' ') : item.ticker) || '';
+      document.getElementById('ai-name').value = '';
       document.getElementById('ai-strategy').value = item.strategy || '';
       document.getElementById('ai-suggestion').value = item.suggestion || '';
       document.getElementById('ai-status').value = item.status || 'waiting';
@@ -2806,6 +2806,7 @@ function openActionItemModal(id = null) {
   } else {
     document.getElementById('ai-ticker').value = '';
     document.getElementById('ai-name').value = '';
+    document.getElementById('ai-stock-status').value = '';
     document.getElementById('ai-strategy').value = '';
     document.getElementById('ai-suggestion').value = '';
     document.getElementById('ai-status').value = 'waiting';
@@ -2827,10 +2828,25 @@ function saveActionItem() {
   if (!ticker) return alert('請填入股票代號');
 
   const stockStatus = document.getElementById('ai-stock-status').value.trim();
+  const tickerRaw = document.getElementById('ai-ticker').value.trim();
+
+  // Parse multiple tickers/names
+  const tickers = tickerRaw.split(/[,\s]+/).map(t => t.trim()).filter(Boolean);
+
+  // Match names from holdings
+  const resolvedTickers = tickers.map(t => {
+    // Try match by name (TW stocks) or by ticker (US stocks)
+    const h = [...holdings.tw, ...holdings.us].find(h =>
+      h.name === t || h.ticker === t || h.ticker.toUpperCase() === t.toUpperCase()
+    );
+    return { ticker: h ? h.ticker : t, name: h ? h.name : t };
+  });
 
   const data = {
     id: _editingActionId || Date.now().toString(),
-    ticker, name,
+    ticker: resolvedTickers.map(r => r.ticker).join(', '),
+    name: resolvedTickers.map(r => r.name).join(', '),
+    tickers: resolvedTickers,
     strategy: document.getElementById('ai-strategy').value.trim(),
     suggestion: document.getElementById('ai-suggestion').value.trim(),
     status: document.getElementById('ai-status').value,
@@ -2845,9 +2861,11 @@ function saveActionItem() {
     actionItems.unshift(data);
   }
 
-  // Sync stock status to holdings display
+  // Sync stock status to ALL tickers
   if (stockStatus) {
-    stockStatuses[ticker] = stockStatus;
+    resolvedTickers.forEach(r => {
+      stockStatuses[r.ticker] = stockStatus;
+    });
     localStorage.setItem('invest_stock_statuses', JSON.stringify(stockStatuses));
   }
 
@@ -2873,11 +2891,9 @@ loadAllData();
   <div class="modal" style="max-width:480px">
     <h2 id="action-item-modal-title">新增行動項目</h2>
     <div class="input-group">
-      <label class="input-label">股票代號 / 名稱</label>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="ai-ticker" placeholder="代號 例如：6515" oninput="autoFillName()" style="width:40%">
-        <input type="text" id="ai-name" placeholder="名稱 例如：穎崴" style="flex:1">
-      </div>
+      <label class="input-label">股票（可填多支，空格或逗號分隔）</label>
+      <input type="text" id="ai-ticker" placeholder="台股填名稱，美股填代號，例如：奇鋐 穎崴 NVDA">
+      <input type="hidden" id="ai-name" value="">
     </div>
     <div class="input-group">
       <label class="input-label">策略筆記</label>
