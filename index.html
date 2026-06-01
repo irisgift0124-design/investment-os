@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -2444,7 +2444,7 @@ function renderHoldingsAction() {
     items.map(item =>
       '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(200,191,170,0.3)">' +
         '<input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer;flex-shrink:0;margin-top:3px">' +
-        '<div style="min-width:55px"><span class="ticker-badge" style="font-size:10px">' + item.ticker + '</span></div>' +
+        '<div style="min-width:55px"><span class="ticker-badge" style="font-size:10px">' + (item.tickers ? item.tickers.map(r => r.name||r.ticker).join(', ') : item.name||item.ticker) + '</span></div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:11px;color:var(--muted)">' + (item.strategy||'') + '</div>' +
           (item.suggestion ? '<div style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';line-height:1.5">' + item.suggestion + '</div>' : '') +
