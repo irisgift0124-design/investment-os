@@ -2100,7 +2100,12 @@ function toggleStockInfo(elOrTicker) {
   const ticker = typeof elOrTicker === 'string' ? elOrTicker : elOrTicker.getAttribute('data-t');
   const el = document.getElementById('info-' + ticker);
   if (!el) return;
-  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+  const isOpen = el.style.display !== 'none';
+  // Close all other open rows first
+  document.querySelectorAll('[id^="info-"]').forEach(row => {
+    if (row.id !== 'info-' + ticker) row.style.display = 'none';
+  });
+  el.style.display = isOpen ? 'none' : 'table-row';
 }
 
 
