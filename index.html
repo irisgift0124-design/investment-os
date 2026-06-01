@@ -1436,13 +1436,8 @@ function renderCash() {
   const rate = cash.usd_rate || 31.5;
   const usdTwd = (n) => Math.round(n * rate).toLocaleString();
 
-  // Load BASE values into edit fields (not synced values)
+  // Edit fields removed - using deposit/withdraw instead
   const baseVals = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
-  document.getElementById('cash-yuanta-twd').value = baseVals.yuanta_twd || 0;
-  document.getElementById('cash-taishin-twd').value = baseVals.taishin_twd || 0;
-  document.getElementById('cash-ib-usd').value = baseVals.ib_usd || 0;
-  document.getElementById('cash-firstrade-usd').value = baseVals.firstrade_usd || 0;
-  document.getElementById('usd-rate').value = baseVals.usd_rate || 31.5;
 
   const twdTotal = (cash.yuanta_twd||0) + (cash.taishin_twd||0);
   const usdTotal = (cash.ib_usd||0) + (cash.firstrade_usd||0);
