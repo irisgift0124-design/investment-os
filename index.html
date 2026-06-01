@@ -802,9 +802,15 @@ let strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
 let cash = JSON.parse(localStorage.getItem('invest_cash') || '{"yuanta_twd":0,"taishin_twd":0,"ib_usd":0,"firstrade_usd":0,"usd_rate":31.5}');
 let holdings = { tw: [], us: [], history: [], dividends: [], allTrades: [] };
 let sheetStockInfos = {}; // from Google Sheet 股票簡介 tab
-let stockStatuses = JSON.parse(localStorage.getItem('invest_stock_statuses') || '{}'); // 手動狀態
-let stockPeriods = JSON.parse(localStorage.getItem('invest_stock_periods') || '{}'); // 短中長分類
+let stockStatuses = JSON.parse(localStorage.getItem('invest_stock_statuses') || '{}');
+let stockPeriods = JSON.parse(localStorage.getItem('invest_stock_periods') || '{}');
 let prices = {};
+let stockInfos = JSON.parse(localStorage.getItem('invest_stock_infos') || '{}');
+let techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+let actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
+let executedItems = JSON.parse(localStorage.getItem('invest_executed_items') || '[]');
+let currentNoteCategory = '全部';
+let editingStockTicker = null;
 let chatHistory = [];
 let editingStrategyId = null;
 let monthlyChart = null, allocChart = null;
@@ -2430,7 +2436,7 @@ function renderHoldingsAction() {
   const pending = actionItems.filter(i => !i.done);
 
   if (!pending.length) {
-    el.innerHTML = '<div class="card" style="margin-bottom:0"><div class="card-title" style="margin-bottom:8px">今日行動清單 <button onclick="nav(\'notes\')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button></div><div style="font-size:12px;color:var(--muted)">目前沒有待執行項目</div></div>';
+    el.innerHTML = '<div class="card" style="margin-bottom:0"><div class="card-title">今日行動清單 <button onclick="nav(\'notes\')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button></div><div style="font-size:12px;color:var(--muted)">目前沒有待執行項目</div></div>';
     return;
   }
 
@@ -2459,7 +2465,7 @@ function renderHoldingsAction() {
 
   el.innerHTML = '<div class="card" style="margin-bottom:0">' +
     '<div class="card-title" style="margin-bottom:4px">今日行動清單 <span style="font-size:10px;color:var(--muted)">(' + pending.length + ' 個待執行)</span>' +
-      '<button onclick="nav(\'notes\')" + "" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button>' +
+      '<button onclick="nav(\'notes\')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">前往分析 →</button>' +
     '</div>' +
     renderGroup(twItems, '🇹🇼 台股') +
     renderGroup(usItems, '🇺🇸 美股') +
@@ -2605,12 +2611,12 @@ function openStrategyForTicker(btn) {
 }
 
 // ======== NOTES CENTER ========
-let techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
-let actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
-let executedItems = JSON.parse(localStorage.getItem('invest_executed_items') || '[]');
-let stockInfos = JSON.parse(localStorage.getItem('invest_stock_infos') || '{}');
-let currentNoteCategory = '全部';
-let editingStockTicker = null;
+
+
+
+
+
+
 
 const catColors = { '技術指標':'#378ADD', '個股策略':'#1D9E75', '操作心法':'#BA7517', '產業觀察':'#7F77DD', '風險提醒':'#E24B4A' };
 
@@ -2711,6 +2717,90 @@ async function analyzeActionNotes() {
     document.getElementById('action-list').innerHTML = '<div style="color:var(--red);font-size:12px;padding:10px">分析失敗：' + e.message + '</div>';
   }
 }
+// ======== CLOUD SYNC ========
+async function saveSettingToCloud(key, value) {
+  try {
+    const strVal = typeof value === 'string' ? value : JSON.stringify(value);
+    await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ saveSettings: { key, value: strVal } })
+    });
+  } catch(e) { console.log('Cloud save failed:', e.message); }
+}
+
+async function loadSettingsFromCloud(cloudSettings) {
+  if (!cloudSettings) return;
+  const safeParse = (val) => {
+    try {
+      let v = val, maxTries = 5;
+      while (typeof v === 'string' && maxTries-- > 0) { try { v = JSON.parse(v); } catch(e) { break; } }
+      return v;
+    } catch(e) { return null; }
+  };
+  if (cloudSettings.geminiKey) {
+    const gKey = safeParse(cloudSettings.geminiKey);
+    if (gKey && typeof gKey === 'string') { config.geminiKey = gKey; localStorage.setItem('invest_config', JSON.stringify(config)); }
+  }
+  if (cloudSettings.cash) {
+    const cloudCash = safeParse(cloudSettings.cash);
+    if (cloudCash && typeof cloudCash === 'object' && !Array.isArray(cloudCash)) {
+      cash = cloudCash; localStorage.setItem('invest_cash', JSON.stringify(cash)); localStorage.setItem('invest_cash_base', JSON.stringify(cloudCash));
+    }
+  }
+  if (cloudSettings.techNotes) {
+    const cloudNotes = safeParse(cloudSettings.techNotes);
+    if (Array.isArray(cloudNotes) && cloudNotes.length >= techNotes.length) { techNotes = cloudNotes; localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes)); }
+  }
+  if (cloudSettings.strategies) {
+    const cloudStrats = safeParse(cloudSettings.strategies);
+    if (Array.isArray(cloudStrats) && cloudStrats.length >= strategies.length) { strategies = cloudStrats; localStorage.setItem('invest_strategies', JSON.stringify(strategies)); }
+  }
+  if (cloudSettings.actionItems) {
+    const cloudActions = safeParse(cloudSettings.actionItems);
+    if (Array.isArray(cloudActions) && cloudActions.length >= actionItems.length) { actionItems = cloudActions; localStorage.setItem('invest_action_items', JSON.stringify(actionItems)); }
+  }
+  if (cloudSettings.stockInfos) {
+    const cloudInfos = safeParse(cloudSettings.stockInfos);
+    if (cloudInfos && typeof cloudInfos === 'object') { stockInfos = cloudInfos; localStorage.setItem('invest_stock_infos', JSON.stringify(stockInfos)); }
+  }
+  if (!Array.isArray(strategies)) strategies = JSON.parse(localStorage.getItem('invest_strategies') || '[]');
+  if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+  if (!Array.isArray(actionItems)) actionItems = JSON.parse(localStorage.getItem('invest_action_items') || '[]');
+  updateGeminiStatus();
+}
+
+async function syncAllToCloud() {
+  const baseCash = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
+  await Promise.all([
+    saveSettingToCloud('geminiKey', config.geminiKey || ''),
+    saveSettingToCloud('cash', JSON.stringify(baseCash)),
+    saveSettingToCloud('techNotes', JSON.stringify(techNotes)),
+    saveSettingToCloud('strategies', JSON.stringify(strategies)),
+    saveSettingToCloud('actionItems', JSON.stringify(actionItems)),
+    saveSettingToCloud('stockInfos', JSON.stringify(stockInfos)),
+  ]);
+  alert('✓ 已同步到雲端！');
+}
+
+async function testGASConnection() {
+  try {
+    const res = await fetch(GAS_URL);
+    const text = await res.text();
+    alert('✅ 連線成功！狀態：' + res.status + '\n回應：' + text.slice(0,150));
+  } catch(e) {
+    alert('❌ 連線失敗：' + e.message);
+  }
+}
+
+// ======== INIT ========
+updateGeminiStatus();
+if (config.notionToken) document.getElementById('notion-sync-btn').style.display='inline-block';
+if (!Array.isArray(strategies)) strategies = [];
+if (!Array.isArray(techNotes)) techNotes = [];
+if (!Array.isArray(actionItems)) actionItems = [];
+renderStrategies();
+loadAllData();
 </script>
 </body>
 </html>
