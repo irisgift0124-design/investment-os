@@ -1218,6 +1218,9 @@ function showHoldingsError(msg) {
 }
 
 function renderHoldings() {
+  // Sync cash from trades before rendering so numbers match cash page
+  syncCashFromTrades();
+
   document.getElementById('holdings-loading').style.display = 'none';
   document.getElementById('holdings-error').style.display = 'none';
   document.getElementById('holdings-content').style.display = 'block';
@@ -1433,10 +1436,12 @@ function syncCashFromTrades() {
 
 // ======== CASH ========
 function renderCash() {
+  // Always sync from trades first to get accurate numbers
+  syncCashFromTrades();
+
   const rate = cash.usd_rate || 31.5;
   const usdTwd = (n) => Math.round(n * rate).toLocaleString();
 
-  // Edit fields removed - using deposit/withdraw instead
   const baseVals = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
 
   const twdTotal = (cash.yuanta_twd||0) + (cash.taishin_twd||0);
