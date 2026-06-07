@@ -933,18 +933,28 @@ async function loadAllData() {
 function parseRows(rows, market) {
   if (!rows || rows.length < 4) return [];
   const trades = [];
-  for (let i = 3; i < rows.length; i++) {
+  // Detect header row offset (TW has title at row[0][1], US at row[0][2])
+  // Find the row with '券商' to locate header
+  let headerRow = 2;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    if (rows[i] && rows[i].join('').includes('券商')) { headerRow = i; break; }
+  }
+  const dataStart = headerRow + 1;
+
+  for (let i = dataStart; i < rows.length; i++) {
     const c = rows[i];
-    if (!c || c.length < 7) continue;
+    if (!c || c.length < 5) continue;
     const broker = String(c[0]||'').trim();
     const date = String(c[1]||'').trim();
     const ticker = String(c[2]||'').trim();
     const name = String(c[3]||'').trim();
     const type = String(c[4]||'').trim();
-    const qty = parseFloat(String(c[5]).replace(/,/g,'')) || 0;
-    const price = parseFloat(String(c[6]).replace(/,/g,'')) || 0;
+    const qty = parseFloat(String(c[5]||'0').replace(/,/g,'')) || 0;
+    const price = parseFloat(String(c[6]||'0').replace(/,/g,'')) || 0;
     const total = parseFloat(String(c[9]||'0').replace(/,/g,'')) || 0;
-    if (!date || !ticker || !name || date==='交易日期' || ticker==='股票代碼') continue;
+    if (!date || !ticker || !name) continue;
+    if (date === '交易日期' || ticker === '股票代碼' || broker === '券商') continue;
+    if (String(ticker).includes('📊') || String(name).includes('明細表')) continue;
     const isBuy = type.includes('買');
     trades.push({ date, broker, ticker, name, type, qty:Math.abs(qty), price, total:Math.abs(total), isBuy, market });
   }
@@ -2584,6 +2594,8 @@ function executeActionFromHoldings(cb) {
   localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
   localStorage.setItem('invest_executed_items', JSON.stringify(executedItems));
   renderHoldingsAction();
+  // Also refresh holdings to remove status badge if needed
+  renderHoldings();
 }
 
 // ======== HOLDINGS EVENTS ========
