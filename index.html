@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>投資 OS</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="投資OS">
+<meta name="theme-color" content="#1a1710">
+<link rel="apple-touch-icon" href="https://irisgift0124-design.github.io/investment-os/icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;600&family=JetBrains+Mono:wght@300;400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -1806,121 +1811,138 @@ async function processImage(file) {
   const selectedBroker = document.getElementById('screenshot-broker')?.value || '';
   const selectedMarket = document.getElementById('screenshot-market')?.value || 'auto';
   const marketHint = selectedMarket === 'auto' ? 'tw' : selectedMarket;
-  let prompt = 'Look at this trading screenshot and extract the trade information. ';
+
+  let prompt = 'This is a ' + selectedBroker + ' trading screenshot. ';
   if (selectedBroker === 'Interactive Brokers') {
-    prompt += 'This is an Interactive Brokers (IBKR) screenshot. BOT/Bought=buy, SLD/Sold=sell. ';
+    prompt += 'IBKR format: 買入=buy, 已賣出=sell, format is "TICKER 買入/已賣出 QTY @ PRICE". Extract ALL trades visible. ';
   } else if (selectedBroker === 'Firstrade') {
-    prompt += 'This is a Firstrade screenshot. ';
+    prompt += 'Firstrade format: 買進=buy, 賣出=sell. Extract ALL trades visible. ';
+  } else if (selectedBroker === '台新') {
+    prompt += 'Taiwan broker format: 零股買進/現股買進=buy, 賣出=sell. Fields: 股名(name), 成交日期(date), 交易別(type), 股數(qty), 成交價(price), 手續費(fee), 交易稅(tax). Extract ALL rows. ';
+  } else if (selectedBroker === '元大') {
+    prompt += 'Taiwan broker format: 現股買=buy, 現股賣=sell. Fields: 日期(date), 商品(name), 交易別(type), 成交價格(price), 成交數量(qty), 手續費(fee), 交易稅(tax), 客戶應收付(total). Extract ALL rows. ';
   }
-  prompt += 'Return ONLY a JSON object with these exact fields, no other text:\n';
-  prompt += '{"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD format","ticker":"stock symbol","name":"company name","type":"買進 or 賣出","qty":number,"price":number,"fee":number or 0,"total":number,"market":"' + marketHint + '"}';
+  prompt += 'Return ONLY a JSON array of ALL trades found, no other text. Each trade: {"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD","ticker":"stock code","name":"company name","type":"買進 or 賣出","qty":number,"price":number,"fee":number,"total":number,"market":"' + marketHint + '"}';
 
   try {
-    // Try 2.5-flash first, fallback to 2.0-flash if overloaded
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-    let data, lastErr;
+    let data;
     for (const model of models) {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{ parts:[{ inline_data:{ mime_type:file.type, data:b64 } },{ text:prompt }] }] })
+        body: JSON.stringify({ contents:[{ parts:[{ inline_data:{ mime_type:file.type, data:b64 } },{ text:prompt }] }], generationConfig:{ temperature:0.1 } })
       });
       data = await r.json();
-      if (data.error && (data.error.code === 503 || data.error.code === 429)) { lastErr = data.error; continue; }
+      if (data.error && (data.error.code===503||data.error.code===429)) continue;
       break;
     }
-    if (data.error) throw new Error(data.error.message + ' (code: ' + data.error.code + ')');
-    if (!data.candidates || !data.candidates[0]) throw new Error('No candidates: ' + JSON.stringify(data).slice(0,200));
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-    console.log('Gemini raw text:', text.slice(0, 300));
-    if (!text) throw new Error('Empty response from Gemini');
-    const json = JSON.parse(text.replace(/```json|```/g,'').trim());
-    console.log('Screenshot JSON:', JSON.stringify(json));
-    window._lastScreenshotJson = json;
+    if (data.error) throw new Error(data.error.message);
+    if (!data.candidates?.[0]) throw new Error('No response');
 
-    // Normalize field names (AI may use different keys)
-    const normalized = {
-      broker: json.broker || json['券商'] || selectedBroker || '—',
-      date: json.date || json['日期'] || json['交易日期'] || '—',
-      ticker: json.ticker || json['ticker'] || json['股票代號'] || json['代號'] || '',
-      name: json.name || json['name'] || json['股票名稱'] || json['名稱'] || '',
-      type: json.type || json['type'] || json['交易類型'] || json['類型'] || '買進',
-      qty: json.qty || json['qty'] || json['數量'] || json['股數'] || 0,
-      price: json.price || json['price'] || json['成交價格'] || json['成交價'] || 0,
-      fee: json.fee || json['fee'] || json['手續費'] || 0,
-      total: json.total || json['total'] || json['總金額'] || json['收付總金額'] || 0,
-      market: json.market || json['market'] || json['市場'] || (selectedMarket === 'auto' ? 'tw' : selectedMarket)
-    };
-    window._lastScreenshotJson = normalized;
-    console.log('Normalized JSON:', JSON.stringify(normalized));
+    const text = data.candidates[0]?.content?.parts?.[0]?.text || '';
+    console.log('Raw:', text.slice(0,300));
 
-    el.innerHTML = `
-      <div class="card">
-        <div class="card-title">辨識結果</div>
-        <table class="data-table">
-          <tr><td>券商</td><td>${normalized.broker}</td></tr>
-          <tr><td>日期</td><td>${normalized.date}</td></tr>
-          <tr><td>股票</td><td>${normalized.ticker} ${normalized.name}</td></tr>
-          <tr><td>類型</td><td><span class="tag ${normalized.type==='買進'?'tag-buy':'tag-sell'}">${normalized.type}</span></td></tr>
-          <tr><td>數量</td><td>${normalized.qty}</td></tr>
-          <tr><td>成交價</td><td>${normalized.price}</td></tr>
-          <tr><td>手續費</td><td>${normalized.fee||0}</td></tr>
-          <tr><td>總金額</td><td>${normalized.total}</td></tr>
-          <tr><td>市場</td><td>${normalized.market==='tw'?'台股':'美股'}</td></tr>
-        </table>
-        <div style="margin-top:14px;display:flex;gap:8px">
-          <button class="btn btn-primary" onclick="writeToSheet()">✓ 寫入 Google Sheet</button>
-          <button class="btn btn-outline" onclick="document.getElementById('screenshot-result').innerHTML=''">重新上傳</button>
-        </div>
-      </div>`;
-  } catch(e) {
-    el.innerHTML = `<div class="alert alert-warn">辨識失敗：${e.message}<br>請確認截圖清晰且包含交易資訊</div>`;
-    console.error('processImage error:', e);
+    let cleanText = text.replace(/```json|```/g,'').trim();
+    const s = cleanText.indexOf('['), e = cleanText.lastIndexOf(']');
+    if (s === -1 || e === -1) throw new Error('AI 未回傳 JSON 格式');
+    const trades = JSON.parse(cleanText.slice(s, e+1));
+
+    if (!trades.length) throw new Error('未偵測到任何交易');
+
+    window._pendingTrades = trades;
+    renderTradeConfirm(trades);
+
+  } catch(err) {
+    el.innerHTML = '<div class="alert alert-warn">辨識失敗：' + err.message + '</div>';
   }
+}
+
+function renderTradeConfirm(trades) {
+  const el = document.getElementById('screenshot-result');
+  el.innerHTML = '<div class="card">' +
+    '<div class="card-title">辨識結果 — 共 ' + trades.length + ' 筆，確認後寫入</div>' +
+    '<div id="trade-confirm-list">' +
+    trades.map((t, i) =>
+      '<div id="trade-row-' + i + '" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:200px">' +
+          '<div style="font-size:12px;font-weight:600">' + (t.ticker||'') + ' ' + (t.name||'') +
+            ' <span class="tag ' + (t.type==='買進'?'tag-buy':'tag-sell') + '">' + (t.type||'') + '</span></div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + (t.date||'') + ' · ' + (t.qty||0) + '股 @ ' + (t.price||0) + ' · 手續費 ' + (t.fee||0) + '</div>' +
+        '</div>' +
+        '<button onclick="removeTrade(' + i + ')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;flex-shrink:0">刪除</button>' +
+      '</div>'
+    ).join('') +
+    '</div>' +
+    '<div style="margin-top:14px;display:flex;gap:8px">' +
+      '<button class="btn btn-primary" onclick="writeAllTrades()">✓ 全部寫入 Google Sheet</button>' +
+      '<button class="btn btn-outline" onclick="clearScreenshot()">重新上傳</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function clearScreenshot() {
+  document.getElementById('screenshot-result').innerHTML = '';
+  window._pendingTrades = [];
+}
+
+function removeTrade(i) {
+  window._pendingTrades.splice(i, 1);
+  if (!window._pendingTrades.length) {
+    document.getElementById('screenshot-result').innerHTML = '<div class="alert alert-info">已刪除所有筆，請重新上傳</div>';
+    return;
+  }
+  renderTradeConfirm(window._pendingTrades);
+}
+
+async function writeAllTrades() {
+  const trades = window._pendingTrades || [];
+  if (!trades.length) return alert('沒有待寫入的交易');
+
+  let success = 0, fail = 0;
+  for (const t of trades) {
+    try {
+      const sheetName = t.market === 'tw' ? '台股交易紀錄' : '美股交易紀錄';
+      const row = [
+        t.broker || '',
+        t.date || '',
+        t.ticker || '',
+        t.name || '',
+        '現股' + (t.type || '買進'),
+        Number(t.qty) || 0,
+        Number(t.price) || 0,
+        Number(t.fee) || 0,
+        0,
+        Number(t.total) || 0,
+        t.market === 'tw' ? '台股' : '美股'
+      ];
+      const res = await fetch(GAS_URL, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ sheet: sheetName, row })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      success++;
+    } catch(e) {
+      fail++;
+      console.error('Write failed:', t.ticker, e);
+    }
+  }
+
+  document.getElementById('screenshot-result').innerHTML =
+    '<div class="alert ' + (fail?'alert-warn':'alert-success') + '">✓ 成功寫入 ' + success + ' 筆' + (fail?' ｜ 失敗 ' + fail + ' 筆':'') + '</div>';
+
+  window._pendingTrades = [];
+  await loadAllData();
 }
 
 async function writeToSheet() {
-  const json = window._lastScreenshotJson;
-  if (!json) { alert('找不到辨識結果，請重新上傳'); return; }
-
-  // Debug: show what we're sending
-  console.log('Writing to sheet:', JSON.stringify(json));
-
-  const sheetName = json.market==='tw' ? '台股交易紀錄' : '美股交易紀錄';
-  const broker = json.broker || document.getElementById('screenshot-broker')?.value || '元大';
-  const row = [
-    broker,
-    json.date || '',
-    json.ticker || '',
-    json.name || '',
-    '現股' + (json.type || '買進'),
-    Number(json.qty) || 0,
-    Number(json.price) || 0,
-    Number(json.fee) || 0,
-    0,
-    Number(json.total) || 0,
-    json.market === 'tw' ? '台股' : '美股'
-  ];
-
-  console.log('Row:', JSON.stringify(row));
-  console.log('Sheet:', sheetName);
-
-  try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sheet: sheetName, row: row })
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    console.log('GAS response:', JSON.stringify(data));
-    if (data.error) throw new Error(data.error);
-    document.getElementById('screenshot-result').innerHTML = '<div class="alert alert-success">✓ 已成功寫入 Google Sheet！</div>';
-    await loadAllData();
-  } catch(e) {
-    console.error('writeToSheet error:', e);
-    alert('寫入失敗：' + e.message + '\n請按 F12 查看 Console 的詳細錯誤');
+  // Legacy single trade write - redirect to writeAllTrades
+  if (window._lastScreenshotJson) {
+    window._pendingTrades = [window._lastScreenshotJson];
+    await writeAllTrades();
   }
 }
+
 
 function fileToBase64(file) {
   return new Promise((res,rej) => { const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
