@@ -1840,7 +1840,8 @@ async function processImage(file) {
     if (!data.candidates?.[0]) throw new Error('No response');
 
     const text = data.candidates[0]?.content?.parts?.[0]?.text || '';
-    console.log('Raw:', text.slice(0,300));
+    console.log('Raw response:', text.slice(0,500));
+    if (!text) throw new Error('Gemini 回傳空白，請重試');
 
     let cleanText = text.replace(/```json|```/g,'').trim();
     const s = cleanText.indexOf('['), e = cleanText.lastIndexOf(']');
@@ -1853,6 +1854,7 @@ async function processImage(file) {
     renderTradeConfirm(trades);
 
   } catch(err) {
+    console.error('processImage error:', err);
     el.innerHTML = '<div class="alert alert-warn">辨識失敗：' + err.message + '</div>';
   }
 }
