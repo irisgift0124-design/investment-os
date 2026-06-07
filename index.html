@@ -1866,16 +1866,23 @@ async function processImage(file) {
 
     if (!trades.length) throw new Error('未偵測到任何交易');
 
-    // Known US stock names
+    // Known US stock full names
     const usStockNames = {
-      'NVDA':'NVIDIA (輝達)', 'TSLA':'Tesla (特斯拉)', 'MSFT':'Microsoft (微軟)',
-      'AAPL':'Apple (蘋果)', 'GOOG':'Alphabet (Google)', 'AMZN':'Amazon (亞馬遜)',
-      'QQQ':'納斯達克100 ETF', 'VOO':'標普500 ETF', 'AVGO':'Broadcom (博通)',
-      'MU':'Micron (美光)', 'MRVL':'Marvell (美滿電子)', 'NXPI':'NXP Semiconductors (恩智浦)',
-      'IBKR':'Interactive Brokers', 'VRT':'Vertiv Holdings', 'NOW':'ServiceNow',
-      'UMAC':'Unusual Machines', 'AMPX':'Amprius Technologies', 'WMT':'Walmart (沃爾瑪)',
-      'TGT':'Target', 'DIS':'Disney (迪士尼)', 'WBD':'Warner Bros. Discovery',
-      'QS':'QuantumScape', 'SLDP':'Solid Power', 'STAA':'STAAR Surgical',
+      'NVDA':'NVIDIA Corp', 'TSLA':'Tesla Inc', 'MSFT':'Microsoft Corp',
+      'AAPL':'Apple Inc', 'GOOG':'Alphabet Inc', 'AMZN':'Amazon.com Inc',
+      'QQQ':'Invesco QQQ Trust', 'VOO':'Vanguard S&P 500 ETF',
+      'AVGO':'Broadcom Inc', 'MU':'Micron Technology Inc',
+      'MRVL':'Marvell Technology Inc', 'NXPI':'NXP Semiconductors N.V.',
+      'IBKR':'Interactive Brokers Group', 'VRT':'Vertiv Holdings Co.',
+      'NOW':'ServiceNow Inc', 'UMAC':'Unusual Machines Inc',
+      'AMPX':'Amprius Technologies', 'WMT':'Walmart Inc',
+      'TGT':'Target Corp', 'DIS':'The Walt Disney Co',
+      'WBD':'Warner Bros. Discovery Inc', 'QS':'QuantumScape Corp',
+      'SLDP':'Solid Power Inc', 'STAA':'STAAR Surgical Co',
+      'ADBE':'Adobe Inc', 'META':'Meta Platforms Inc', 'NFLX':'Netflix Inc',
+      'AMD':'Advanced Micro Devices Inc', 'INTC':'Intel Corp',
+      'QCOM':'Qualcomm Inc', 'TXN':'Texas Instruments Inc',
+      'CRM':'Salesforce Inc', 'ORCL':'Oracle Corp', 'UBER':'Uber Technologies Inc',
     };
 
     trades.forEach(t => {
@@ -1884,10 +1891,11 @@ async function processImage(file) {
         t.market = 'us';
         // Auto-fill US stock name from ticker
         if (t.ticker && (!t.name || t.name === t.ticker || t.name === '')) {
-          // Try from holdings first
+          // Try from holdings first, then lookup table, then keep AI-provided name
           const matched = holdings.us.find(h => h.ticker === t.ticker.toUpperCase());
           if (matched) t.name = matched.name;
           else if (usStockNames[t.ticker.toUpperCase()]) t.name = usStockNames[t.ticker.toUpperCase()];
+          // else keep whatever AI returned
         }
       } else if (selectedBroker === '台新' || selectedBroker === '元大') {
         t.market = 'tw';
@@ -2105,7 +2113,7 @@ async function sendChat() {
     for (const model of models2) {
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ system_instruction:{parts:[{text:buildAIContext()}]}, contents, generationConfig:{maxOutputTokens:8192,temperature:0.7} })
+        body:JSON.stringify({ system_instruction:{parts:[{text:buildAIContext()}]}, contents, tools:[{google_search:{}}], generationConfig:{maxOutputTokens:8192,temperature:0.7} })
       });
       data = await r.json();
       if (data.error && (data.error.code === 503 || data.error.code === 429)) { lastErr2 = data.error; continue; }
@@ -2113,7 +2121,15 @@ async function sendChat() {
     }
     if (data.error) throw new Error(data.error.message + ' (code: ' + data.error.code + ')');
     if (!data.candidates || !data.candidates[0]) throw new Error('No response: ' + JSON.stringify(data));
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '發生錯誤，請再試一次。';
+    // Extract text from all parts (search results may add multiple parts)
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    let reply = parts.map(p => p.text || '').join('').trim() || '發生錯誤，請再試一次。';
+    // Add search sources if available
+    const groundingChunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    if (groundingChunks.length > 0) {
+      const sources = groundingChunks.slice(0,3).map(c => c.web?.title || c.web?.uri || '').filter(Boolean);
+      if (sources.length) reply += '\n\n*資料來源：' + sources.join('、') + '*';
+    }
     removeThinking(thinkId); addMsg('ai', reply);
     chatHistory.push({ role:'assistant', content:reply });
   } catch(e) {
