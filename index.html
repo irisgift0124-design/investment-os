@@ -1812,17 +1812,23 @@ async function processImage(file) {
   const selectedMarket = document.getElementById('screenshot-market')?.value || 'auto';
   const marketHint = selectedMarket === 'auto' ? 'tw' : selectedMarket;
 
+  // Build TW stock name->ticker lookup from holdings
+  const twNameToTicker = {};
+  holdings.tw.forEach(h => { twNameToTicker[h.name] = h.ticker; });
+
   let prompt = 'This is a ' + selectedBroker + ' trading screenshot. ';
   if (selectedBroker === 'Interactive Brokers') {
-    prompt += 'IBKR format: 買入=buy, 已賣出=sell, format is "TICKER 買入/已賣出 QTY @ PRICE". Extract ALL trades visible. ';
+    prompt += 'IBKR format: 買入=buy, 已賣出=sell. Extract ALL trades. ';
   } else if (selectedBroker === 'Firstrade') {
-    prompt += 'Firstrade format: 買進=buy, 賣出=sell. Extract ALL trades visible. ';
+    prompt += 'Firstrade format: 買進=buy, 賣出=sell. Extract ALL trades. ';
   } else if (selectedBroker === '台新') {
-    prompt += 'Taiwan broker format: 零股買進/現股買進=buy, 賣出=sell. Fields: 股名(name), 成交日期(date), 交易別(type), 股數(qty), 成交價(price), 手續費(fee), 交易稅(tax). Extract ALL rows. ';
+    prompt += 'Taiwan broker 台新. 零股買進/現股買進=buy, 賣出=sell. Fields: 股名(name), 成交日期(date YYYY/MM/DD), 交易別(type), 股數(qty), 成交價(price), 手續費(fee). Extract ALL rows. ';
+    prompt += 'IMPORTANT: For each Taiwan stock name, you MUST provide the correct Taiwan stock exchange ticker number (e.g. 聯發科=2454, 日月光投控=3711, 奇鋐=3017, 台積電=2330). ';
   } else if (selectedBroker === '元大') {
-    prompt += 'Taiwan broker format: 現股買=buy, 現股賣=sell. Fields: 日期(date), 商品(name), 交易別(type), 成交價格(price), 成交數量(qty), 手續費(fee), 交易稅(tax), 客戶應收付(total). Extract ALL rows. ';
+    prompt += 'Taiwan broker 元大. 現股買/零股買=buy, 現股賣=sell. Fields: 日期(date YYYY/MM/DD), 商品(name), 成交價格(price), 成交數量(qty), 手續費(fee), 客戶應收付(total). Extract ALL rows. ';
+    prompt += 'IMPORTANT: For each Taiwan stock name, you MUST provide the correct Taiwan stock exchange ticker number (e.g. 聯發科=2454, 日月光投控=3711, 奇鋐=3017, 台積電=2330). ';
   }
-  prompt += 'Return ONLY a JSON array of ALL trades found, no other text. Each trade: {"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD","ticker":"stock code","name":"company name","type":"買進 or 賣出","qty":number,"price":number,"fee":number,"total":number,"market":"' + marketHint + '"}';
+  prompt += 'Return ONLY a JSON array, no other text. Each trade: {"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD","ticker":"Taiwan 4-digit stock code (MUST provide for TW stocks)","name":"company name in Chinese","type":"買進 or 賣出","qty":number,"price":number,"fee":number,"total":number,"market":"' + marketHint + '"}';
 
   try {
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -1850,6 +1856,21 @@ async function processImage(file) {
 
     if (!trades.length) throw new Error('未偵測到任何交易');
 
+    // Auto-fill ticker for TW stocks by name
+    trades.forEach(t => {
+      if (t.market === 'tw' && (!t.ticker || t.ticker === '')) {
+        // Try match from holdings
+        const matched = holdings.tw.find(h => h.name === t.name || h.name.includes(t.name) || t.name.includes(h.name));
+        if (matched) t.ticker = matched.ticker;
+      }
+      // Fix market based on broker
+      if (selectedBroker === 'Interactive Brokers' || selectedBroker === 'Firstrade') {
+        t.market = 'us';
+      } else if (selectedBroker === '台新' || selectedBroker === '元大') {
+        t.market = 'tw';
+      }
+    });
+
     window._pendingTrades = trades;
     renderTradeConfirm(trades);
 
@@ -1867,8 +1888,12 @@ function renderTradeConfirm(trades) {
     trades.map((t, i) =>
       '<div id="trade-row-' + i + '" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">' +
         '<div style="flex:1;min-width:200px">' +
-          '<div style="font-size:12px;font-weight:600">' + (t.ticker||'') + ' ' + (t.name||'') +
-            ' <span class="tag ' + (t.type==='買進'?'tag-buy':'tag-sell') + '">' + (t.type||'') + '</span></div>' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
+            '<input value="' + (t.ticker||'') + '" onchange="window._pendingTrades[' + i + '].ticker=this.value" placeholder="代號" style="width:70px;font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;font-family:var(--font-sans)">' +
+            '<span style="font-size:12px;font-weight:600">' + (t.name||'') + '</span>' +
+            '<span class="tag ' + (t.type==='買進'?'tag-buy':'tag-sell') + '">' + (t.type||'') + '</span>' +
+            '<span style="font-size:10px;color:var(--muted)">' + (t.market==='tw'?'台股':'美股') + '</span>' +
+          '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + (t.date||'') + ' · ' + (t.qty||0) + '股 @ ' + (t.price||0) + ' · 手續費 ' + (t.fee||0) + '</div>' +
         '</div>' +
         '<button onclick="removeTrade(' + i + ')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;flex-shrink:0">刪除</button>' +
