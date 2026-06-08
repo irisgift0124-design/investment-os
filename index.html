@@ -1313,6 +1313,7 @@ function renderHoldings() {
 
     const editButtons = '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
       '<button onclick="openStatusModal(this)" data-ticker="' + h.ticker + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯狀態</button>' +
+      '<button data-at="' + h.ticker + '" data-an="' + h.name.replace(/['"]/, '') + '" data-ap="' + (h.currentPrice||0) + '" onclick="openPriceAlert(this.dataset.at,this.dataset.an,parseFloat(this.dataset.ap))" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">' + (priceAlerts[h.ticker] ? '🔔 到價通知' : '🔕 設定通知') + '</button>' +
       '<button onclick="editStockInfo(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">公司簡介</button>' +
       (strat ? '<button onclick="editStrat(this)" data-id="' + strat.id + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯策略</button>' :
       '<button onclick="openStrategyForTicker(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">新增策略</button>') +
@@ -2057,7 +2058,9 @@ async function syncNotion() {
 
 // ======== AI CHAT ========
 function buildAIContext() {
-  let ctx = `你是專業的台灣投資顧問，使用繁體中文回答。以下是使用者的完整投資資訊：\n\n`;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('zh-TW', {year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  let ctx = '你是專業的台灣投資顧問，使用繁體中文回答。你有即時網路搜尋能力，可以查詢最新新聞與股市資訊。\n今天是 ' + dateStr + '。\n\n以下是使用者的完整投資資訊：\n\n';
   if (holdings.tw.length) {
     ctx += '【台股持倉】\n';
     holdings.tw.forEach(h => { ctx += `- ${h.ticker} ${h.name}：${h.qty}股，均成本${h.avgCost.toFixed(2)}，${h.currentPrice?'現價'+h.currentPrice.toFixed(2)+`，未實現${h.unrealized>=0?'+':''}${Math.round(h.unrealized)}`:'無即時價格'}，含息損益${h.withDivReturn?Math.round(h.withDivReturn):'—'}\n`; });
@@ -3134,6 +3137,44 @@ function deleteDeposit(id) {
   renderDepositHistory();
 }
 
+
+// ======== PRICE ALERTS ========
+let priceAlerts = JSON.parse(localStorage.getItem('invest_price_alerts') || '{}');
+let _alertTicker = '';
+
+function openPriceAlert(ticker, name, currentPrice) {
+  _alertTicker = ticker;
+  document.getElementById('price-alert-title').textContent = ticker + ' ' + name + ' 到價通知';
+  const existing = priceAlerts[ticker] || {};
+  document.getElementById('alert-buy').value = existing.buy || '';
+  document.getElementById('alert-sell').value = existing.sell || '';
+  document.getElementById('alert-note').value = existing.note || '';
+  document.getElementById('alert-current-price').textContent = currentPrice ? '現價：' + currentPrice : '';
+  document.getElementById('price-alert-modal').classList.add('show');
+}
+
+function savePriceAlert() {
+  const buy = parseFloat(document.getElementById('alert-buy').value) || null;
+  const sell = parseFloat(document.getElementById('alert-sell').value) || null;
+  const note = document.getElementById('alert-note').value.trim();
+  if (!buy && !sell) { clearPriceAlert(); return; }
+  priceAlerts[_alertTicker] = { buy, sell, note, ticker: _alertTicker };
+  localStorage.setItem('invest_price_alerts', JSON.stringify(priceAlerts));
+  // Sync to GAS
+  saveSettingToCloud('priceAlerts', JSON.stringify(priceAlerts));
+  closeModal('price-alert-modal');
+  renderHoldings();
+  alert('✓ 到價通知已設定，GAS 會自動監控並發送 LINE 通知');
+}
+
+function clearPriceAlert() {
+  delete priceAlerts[_alertTicker];
+  localStorage.setItem('invest_price_alerts', JSON.stringify(priceAlerts));
+  saveSettingToCloud('priceAlerts', JSON.stringify(priceAlerts));
+  closeModal('price-alert-modal');
+  renderHoldings();
+}
+
 // ======== INIT ========
 updateGeminiStatus();
 if (config.notionToken) document.getElementById('notion-sync-btn').style.display='inline-block';
@@ -3216,6 +3257,34 @@ loadAllData();
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('deposit-modal')">取消</button>
       <button class="btn btn-primary" id="deposit-confirm-btn" onclick="confirmDeposit()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- Price Alert Modal -->
+<div class="modal-overlay" id="price-alert-modal">
+  <div class="modal" style="max-width:400px">
+    <h2 id="price-alert-title">到價通知</h2>
+    <div class="alert alert-info" style="margin-bottom:14px;font-size:11px">設定後自動同步到 GAS，達到目標價時發送 LINE 通知</div>
+    <div class="form-grid">
+      <div class="input-group">
+        <label class="input-label">目標買入價（跌到通知）</label>
+        <input type="number" id="alert-buy" placeholder="留空表示不通知" step="any">
+      </div>
+      <div class="input-group">
+        <label class="input-label">目標賣出價（漲到通知）</label>
+        <input type="number" id="alert-sell" placeholder="留空表示不通知" step="any">
+      </div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">備註</label>
+      <input type="text" id="alert-note" placeholder="例如：等回檔買入">
+    </div>
+    <div id="alert-current-price" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('price-alert-modal')">取消</button>
+      <button class="btn btn-outline" style="color:var(--red)" onclick="clearPriceAlert()">清除通知</button>
+      <button class="btn btn-primary" onclick="savePriceAlert()">儲存</button>
     </div>
   </div>
 </div>
