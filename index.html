@@ -3230,6 +3230,110 @@ function clearPriceAlert() {
   renderHoldings();
 }
 
+
+// ======== TECH NOTES MISSING FUNCTIONS ========
+async function aiSummarizeNote() {
+  const raw = document.getElementById('nm-raw').value.trim();
+  if (!raw) return alert('請先填入原始筆記');
+  const key = config.geminiKey;
+  if (!key) return alert('請先設定 Gemini API Key');
+  document.getElementById('nm-summary').value = '整理中...';
+  try {
+    const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    let data;
+    for (const model of models) {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contents:[{parts:[{text:'把以下投資筆記整理成2-3句清晰的重點摘要，保留具體數字和操作指令：\n' + raw}]}], generationConfig:{maxOutputTokens:200} })
+      });
+      data = await r.json();
+      if (data.error && (data.error.code===503||data.error.code===429)) continue;
+      break;
+    }
+    document.getElementById('nm-summary').value = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  } catch(e) { document.getElementById('nm-summary').value = ''; alert('AI整理失敗：'+e.message); }
+}
+
+function saveNote() {
+  const raw = document.getElementById('nm-raw').value.trim();
+  if (!raw) return alert('請填入筆記內容');
+  if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+  const note = {
+    id: Date.now().toString(), raw,
+    category: document.getElementById('nm-category').value,
+    tickers: document.getElementById('nm-tickers').value.split(',').map(t=>t.trim()).filter(Boolean),
+    summary: document.getElementById('nm-summary').value.trim(),
+    date: new Date().toLocaleDateString('zh-TW')
+  };
+  techNotes.unshift(note);
+  localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+  saveSettingToCloud('techNotes', JSON.stringify(techNotes));
+  closeModal('note-modal');
+  renderTechNotes();
+}
+
+function renderTechNotes() {
+  const cats = ['全部','技術指標','個股策略','操作心法','產業觀察','風險提醒'];
+  const counts = {};
+  techNotes.forEach(n => { counts[n.category] = (counts[n.category]||0)+1; });
+  const catColors = { '技術指標':'#378ADD', '個股策略':'#1D9E75', '操作心法':'#BA7517', '產業觀察':'#7F77DD', '風險提醒':'#E24B4A' };
+  const catEmoji = {'技術指標':'📊','個股策略':'🎯','操作心法':'🧠','產業觀察':'🏭','風險提醒':'⚠️'};
+  const catsEl = document.getElementById('notes-categories');
+  if (catsEl) catsEl.innerHTML = cats.map(cat => {
+    const count = cat==='全部' ? techNotes.length : (counts[cat]||0);
+    const active = currentNoteCategory === cat;
+    const bg = active ? 'background:var(--ink);color:var(--paper)' : 'color:var(--ink)';
+    return '<div data-c="' + cat + '" onclick="filterByCategory(this.dataset.c)" style="padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;' + bg + '"><span>' + cat + '</span><span style="opacity:0.6">' + count + '</span></div>';
+  }).join('');
+  const allTickers = [...new Set(techNotes.flatMap(n=>n.tickers))];
+  const tickersEl = document.getElementById('notes-tickers');
+  if (tickersEl) tickersEl.innerHTML = allTickers.map(t =>
+    '<span data-tk="' + t + '" onclick="filterByTicker(this.dataset.tk)" style="font-size:11px;padding:3px 7px;background:var(--paper2);border:1px solid var(--border);border-radius:4px;cursor:pointer">' + t + '</span>'
+  ).join('');
+  filterNotes();
+}
+
+function filterByCategory(cat) { currentNoteCategory = cat; renderTechNotes(); }
+function filterByTicker(ticker) { const el = document.getElementById('notes-search'); if (el) el.value = ticker; filterNotes(); }
+
+function filterNotes() {
+  const search = (document.getElementById('notes-search')?.value||'').toLowerCase();
+  let filtered = techNotes;
+  if (currentNoteCategory !== '全部') filtered = filtered.filter(n => n.category === currentNoteCategory);
+  if (search) filtered = filtered.filter(n =>
+    n.raw.toLowerCase().includes(search) || (n.summary||'').toLowerCase().includes(search) ||
+    n.tickers.some(t => t.toLowerCase().includes(search))
+  );
+  const el = document.getElementById('notes-list');
+  if (!el) return;
+  if (!filtered.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">沒有符合的筆記</div>'; return; }
+  const catColors = { '技術指標':'#378ADD', '個股策略':'#1D9E75', '操作心法':'#BA7517', '產業觀察':'#7F77DD', '風險提醒':'#E24B4A' };
+  const catEmoji = {'技術指標':'📊','個股策略':'🎯','操作心法':'🧠','產業觀察':'🏭','風險提醒':'⚠️'};
+  el.innerHTML = filtered.map(n =>
+    '<div style="background:var(--paper2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;border-left:3px solid ' + (catColors[n.category]||'var(--border)') + '">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+        '<span style="font-size:11px;font-weight:600">' + (catEmoji[n.category]||'') + ' ' + n.category + '</span>' +
+        n.tickers.map(t=>'<span style="font-size:10px;padding:2px 6px;background:var(--paper3);border-radius:3px;color:var(--muted)">' + t + '</span>').join('') +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<span style="font-size:11px;color:var(--muted)">' + n.date + '</span>' +
+        '<button data-nid="' + n.id + '" onclick="deleteNote(this.dataset.nid)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">✕</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.5;background:var(--paper);padding:6px 8px;border-radius:4px">"' + n.raw + '"</div>' +
+    (n.summary ? '<div style="font-size:12px;line-height:1.6;color:var(--ink)">' + n.summary + '</div>' : '') +
+    '</div>'
+  ).join('');
+}
+
+function deleteNote(id) {
+  if (!confirm('確定刪除？')) return;
+  techNotes = techNotes.filter(n => n.id !== id);
+  localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+  renderTechNotes();
+}
+
 // ======== INIT ========
 updateGeminiStatus();
 if (config.notionToken) document.getElementById('notion-sync-btn').style.display='inline-block';
