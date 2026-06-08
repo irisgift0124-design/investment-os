@@ -4,11 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>投資 OS</title>
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="投資OS">
-<meta name="theme-color" content="#1a1710">
-<link rel="apple-touch-icon" href="https://irisgift0124-design.github.io/investment-os/icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;600&family=JetBrains+Mono:wght@300;400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -308,10 +303,16 @@ textarea { resize:vertical; min-height:70px; }
       <div class="content">
         <div class="cash-grid" id="cash-display"></div>
         <div class="card">
-          <div class="card-title">近三個月出入金紀錄 <span id="deposit-count" style="font-size:10px;color:var(--muted)"></span></div>
-          <div id="deposit-history-list">
-            <div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無入金/出金紀錄</div>
+          <div class="card-title">編輯現金餘額</div>
+          <div class="form-grid">
+            <div class="input-group"><label class="input-label">元大（台幣）</label><input type="number" id="cash-yuanta-twd" placeholder="0"></div>
+            <div class="input-group"><label class="input-label">台新（台幣）</label><input type="number" id="cash-taishin-twd" placeholder="0"></div>
+            <div class="input-group"><label class="input-label">IB（美金）</label><input type="number" id="cash-ib-usd" placeholder="0"></div>
+            <div class="input-group"><label class="input-label">Firstrade（美金）</label><input type="number" id="cash-firstrade-usd" placeholder="0"></div>
           </div>
+          <div class="input-group"><label class="input-label">USD/TWD 匯率</label><input type="number" id="usd-rate" placeholder="31.5" step="0.1"></div>
+          <div style="font-size:11px;color:var(--muted);margin-top:8px">填入連動起始日當天的實際帳戶餘額，儲存後系統自動計算之後交易的影響。</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">台股連動起始：2026/05/18 ｜ 美股連動起始：2026/05/20</div>
         </div>
         <div class="card">
           <div class="card-title">總資產概覽</div>
@@ -884,13 +885,6 @@ async function loadAllData() {
       localStorage.setItem('invest_prices_cache_time', Date.now().toString());
     }
 
-    // Auto-update USD/TWD rate from GAS prices
-    if (json.usdRate && json.usdRate > 0) {
-      cash.usd_rate = json.usdRate;
-      const base = JSON.parse(localStorage.getItem('invest_cash_base') || 'null');
-      if (base) { base.usd_rate = json.usdRate; localStorage.setItem('invest_cash_base', JSON.stringify(base)); }
-    }
-
     holdings.tw = twHoldings.map(h => enrichHolding(h, 'tw'));
     holdings.us = usHoldings.map(h => enrichHolding(h, 'us'));
 
@@ -933,28 +927,18 @@ async function loadAllData() {
 function parseRows(rows, market) {
   if (!rows || rows.length < 4) return [];
   const trades = [];
-  // Detect header row offset (TW has title at row[0][1], US at row[0][2])
-  // Find the row with '券商' to locate header
-  let headerRow = 2;
-  for (let i = 0; i < Math.min(5, rows.length); i++) {
-    if (rows[i] && rows[i].join('').includes('券商')) { headerRow = i; break; }
-  }
-  const dataStart = headerRow + 1;
-
-  for (let i = dataStart; i < rows.length; i++) {
+  for (let i = 3; i < rows.length; i++) {
     const c = rows[i];
-    if (!c || c.length < 5) continue;
+    if (!c || c.length < 7) continue;
     const broker = String(c[0]||'').trim();
     const date = String(c[1]||'').trim();
     const ticker = String(c[2]||'').trim();
     const name = String(c[3]||'').trim();
     const type = String(c[4]||'').trim();
-    const qty = parseFloat(String(c[5]||'0').replace(/,/g,'')) || 0;
-    const price = parseFloat(String(c[6]||'0').replace(/,/g,'')) || 0;
+    const qty = parseFloat(String(c[5]).replace(/,/g,'')) || 0;
+    const price = parseFloat(String(c[6]).replace(/,/g,'')) || 0;
     const total = parseFloat(String(c[9]||'0').replace(/,/g,'')) || 0;
-    if (!date || !ticker || !name) continue;
-    if (date === '交易日期' || ticker === '股票代碼' || broker === '券商') continue;
-    if (String(ticker).includes('📊') || String(name).includes('明細表')) continue;
+    if (!date || !ticker || !name || date==='交易日期' || ticker==='股票代碼') continue;
     const isBuy = type.includes('買');
     trades.push({ date, broker, ticker, name, type, qty:Math.abs(qty), price, total:Math.abs(total), isBuy, market });
   }
@@ -1233,9 +1217,6 @@ function showHoldingsError(msg) {
 }
 
 function renderHoldings() {
-  // Sync cash from trades before rendering so numbers match cash page
-  syncCashFromTrades();
-
   document.getElementById('holdings-loading').style.display = 'none';
   document.getElementById('holdings-error').style.display = 'none';
   document.getElementById('holdings-content').style.display = 'block';
@@ -1295,25 +1276,8 @@ function renderHoldings() {
       (strat.reason ? '<div style="color:var(--muted);margin-top:4px">' + strat.reason + '</div>' : '') +
       '</div>' : '';
 
-    // Find related action items for this ticker
-    const relatedActions = Array.isArray(actionItems) ? actionItems.filter(i => !i.done && (
-      i.ticker === h.ticker ||
-      (i.tickers && i.tickers.find(r => r.ticker === h.ticker))
-    )) : [];
-    const actionContent = relatedActions.length ?
-      '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">' +
-      '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">📋 行動清單</div>' +
-      relatedActions.map(a =>
-        '<div style="font-size:11px;padding:6px 10px;background:var(--paper3);border-radius:4px;line-height:1.6;margin-bottom:6px">' +
-        (a.strategy ? '<div style="color:var(--muted);margin-bottom:2px">' + a.strategy + '</div>' : '') +
-        (a.suggestion ? '<div style="color:var(--ink)">' + a.suggestion + '</div>' : '') +
-        '</div>'
-      ).join('') +
-      '</div>' : '';
-
     const editButtons = '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
       '<button onclick="openStatusModal(this)" data-ticker="' + h.ticker + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯狀態</button>' +
-      '<button data-at="' + h.ticker + '" data-an="' + h.name.replace(/['"]/, '') + '" data-ap="' + (h.currentPrice||0) + '" onclick="openPriceAlert(this.dataset.at,this.dataset.an,parseFloat(this.dataset.ap))" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">' + (priceAlerts[h.ticker] ? '🔔 到價通知' : '🔕 設定通知') + '</button>' +
       '<button onclick="editStockInfo(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">公司簡介</button>' +
       (strat ? '<button onclick="editStrat(this)" data-id="' + strat.id + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">編輯策略</button>' :
       '<button onclick="openStrategyForTicker(this)" data-ticker="' + h.ticker + '" data-name="' + h.name.replace(/"/g,'') + '" style="background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">新增策略</button>') +
@@ -1321,7 +1285,6 @@ function renderHoldings() {
 
     const infoRow = '<tr id="info-' + h.ticker + '" style="display:none"><td colspan="' + (isTW?'9':'8') + '" style="padding:12px 16px;background:var(--paper2);font-size:12px;line-height:1.8;border-bottom:1px solid var(--border)">' +
       (infoContent || stratContent ? infoContent + stratContent : '<div style="color:var(--muted)">尚未填寫簡介，點「公司簡介」新增</div>') +
-      actionContent +
       editButtons + '</td></tr>';
 
     const hasDot = info || strat;
@@ -1452,13 +1415,16 @@ function syncCashFromTrades() {
 
 // ======== CASH ========
 function renderCash() {
-  // Always sync from trades first to get accurate numbers
-  syncCashFromTrades();
-
   const rate = cash.usd_rate || 31.5;
   const usdTwd = (n) => Math.round(n * rate).toLocaleString();
 
+  // Load BASE values into edit fields (not synced values)
   const baseVals = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
+  document.getElementById('cash-yuanta-twd').value = baseVals.yuanta_twd || 0;
+  document.getElementById('cash-taishin-twd').value = baseVals.taishin_twd || 0;
+  document.getElementById('cash-ib-usd').value = baseVals.ib_usd || 0;
+  document.getElementById('cash-firstrade-usd').value = baseVals.firstrade_usd || 0;
+  document.getElementById('usd-rate').value = baseVals.usd_rate || 31.5;
 
   const twdTotal = (cash.yuanta_twd||0) + (cash.taishin_twd||0);
   const usdTotal = (cash.ib_usd||0) + (cash.firstrade_usd||0);
@@ -1470,54 +1436,16 @@ function renderCash() {
   const diffIB = parseFloat(((cash.ib_usd||0) - (b.ib_usd||0)).toFixed(2));
   const diffFT = parseFloat(((cash.firstrade_usd||0) - (b.firstrade_usd||0)).toFixed(2));
   const diffStr = (d, cur) => d === 0 ? '' : `<div style="font-size:10px;color:${d>0?'var(--green)':'var(--red)'}">交易連動 ${d>0?'+':''}${cur}${Math.abs(d).toLocaleString()}</div>`;
-  const cashBtnStyle = 'font-size:10px;padding:3px 8px;border:1px solid var(--border);border-radius:3px;background:none;cursor:pointer;font-family:var(--font-sans)';
   document.getElementById('cash-display').innerHTML = `
-    <div class="cash-card">
-      <div class="cash-broker">元大</div>
-      <div class="cash-amount">NT$ ${Math.round(cash.yuanta_twd||0).toLocaleString()}</div>
-      <div class="cash-currency">台幣</div>
-      ${diffStr(diffYuanta,'NT$')}
-      <div style="display:flex;gap:6px;margin-top:10px">
-        <button style="${cashBtnStyle}" onclick="openDeposit('yuanta_twd','元大','TWD',1)">＋ 入金</button>
-        <button style="${cashBtnStyle}" onclick="openDeposit('yuanta_twd','元大','TWD',-1)">－ 出金</button>
-      </div>
-    </div>
-    <div class="cash-card">
-      <div class="cash-broker">台新</div>
-      <div class="cash-amount">NT$ ${Math.round(cash.taishin_twd||0).toLocaleString()}</div>
-      <div class="cash-currency">台幣</div>
-      ${diffStr(diffTaishin,'NT$')}
-      <div style="display:flex;gap:6px;margin-top:10px">
-        <button style="${cashBtnStyle}" onclick="openDeposit('taishin_twd','台新','TWD',1)">＋ 入金</button>
-        <button style="${cashBtnStyle}" onclick="openDeposit('taishin_twd','台新','TWD',-1)">－ 出金</button>
-      </div>
-    </div>
-    <div class="cash-card">
-      <div class="cash-broker">Interactive Brokers</div>
-      <div class="cash-amount">$ ${(cash.ib_usd||0).toLocaleString()}</div>
-      <div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.ib_usd||0)}</div>
-      ${diffStr(diffIB,'$')}
-      <div style="display:flex;gap:6px;margin-top:10px">
-        <button style="${cashBtnStyle}" onclick="openDeposit('ib_usd','Interactive Brokers','USD',1)">＋ 入金</button>
-        <button style="${cashBtnStyle}" onclick="openDeposit('ib_usd','Interactive Brokers','USD',-1)">－ 出金</button>
-      </div>
-    </div>
-    <div class="cash-card">
-      <div class="cash-broker">Firstrade</div>
-      <div class="cash-amount">$ ${(cash.firstrade_usd||0).toLocaleString()}</div>
-      <div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.firstrade_usd||0)}</div>
-      ${diffStr(diffFT,'$')}
-      <div style="display:flex;gap:6px;margin-top:10px">
-        <button style="${cashBtnStyle}" onclick="openDeposit('firstrade_usd','Firstrade','USD',1)">＋ 入金</button>
-        <button style="${cashBtnStyle}" onclick="openDeposit('firstrade_usd','Firstrade','USD',-1)">－ 出金</button>
-      </div>
-    </div>
+    <div class="cash-card"><div class="cash-broker">元大</div><div class="cash-amount">NT$ ${Math.round(cash.yuanta_twd||0).toLocaleString()}</div><div class="cash-currency">台幣</div>${diffStr(diffYuanta,'NT$')}</div>
+    <div class="cash-card"><div class="cash-broker">台新</div><div class="cash-amount">NT$ ${Math.round(cash.taishin_twd||0).toLocaleString()}</div><div class="cash-currency">台幣</div>${diffStr(diffTaishin,'NT$')}</div>
+    <div class="cash-card"><div class="cash-broker">Interactive Brokers</div><div class="cash-amount">$ ${(cash.ib_usd||0).toLocaleString()}</div><div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.ib_usd||0)}</div>${diffStr(diffIB,'$')}</div>
+    <div class="cash-card"><div class="cash-broker">Firstrade</div><div class="cash-amount">$ ${(cash.firstrade_usd||0).toLocaleString()}</div><div class="cash-currency">美金 ≈ NT$ ${usdTwd(cash.firstrade_usd||0)}</div>${diffStr(diffFT,'$')}</div>
   `;
 
   const twMV = holdings.tw.reduce((s,h)=>s+(h.marketValue||h.totalCost),0);
   const usMV = holdings.us.reduce((s,h)=>s+(h.marketValue||h.totalCost)*rate,0);
 
-  renderDepositHistory();
   document.getElementById('total-assets').innerHTML = `
     <table class="data-table">
       <tr><td>台股持倉市值</td><td class="pnl-up">NT$ ${Math.round(twMV).toLocaleString()}</td></tr>
@@ -1822,191 +1750,121 @@ async function processImage(file) {
   const selectedBroker = document.getElementById('screenshot-broker')?.value || '';
   const selectedMarket = document.getElementById('screenshot-market')?.value || 'auto';
   const marketHint = selectedMarket === 'auto' ? 'tw' : selectedMarket;
-
-  // Build TW stock name->ticker lookup from holdings
-  const twNameToTicker = {};
-  holdings.tw.forEach(h => { twNameToTicker[h.name] = h.ticker; });
-
-  let prompt = 'This is a ' + selectedBroker + ' trading screenshot. ';
+  let prompt = 'Look at this trading screenshot and extract the trade information. ';
   if (selectedBroker === 'Interactive Brokers') {
-    prompt += 'IBKR format: 買入=buy, 已賣出=sell. Extract ALL trades. ';
+    prompt += 'This is an Interactive Brokers (IBKR) screenshot. BOT/Bought=buy, SLD/Sold=sell. ';
   } else if (selectedBroker === 'Firstrade') {
-    prompt += 'Firstrade format: 買進=buy, 賣出=sell. Extract ALL trades. ';
-  } else if (selectedBroker === '台新') {
-    prompt += 'Taiwan broker 台新. 零股買進/現股買進=buy, 賣出=sell. Fields: 股名(name), 成交日期(date YYYY/MM/DD), 交易別(type), 股數(qty), 成交價(price), 手續費(fee). Extract ALL rows. ';
-    prompt += 'IMPORTANT: For each Taiwan stock name, you MUST provide the correct Taiwan stock exchange ticker number (e.g. 聯發科=2454, 日月光投控=3711, 奇鋐=3017, 台積電=2330). ';
-  } else if (selectedBroker === '元大') {
-    prompt += 'Taiwan broker 元大. 現股買/零股買=buy, 現股賣=sell. Fields: 日期(date YYYY/MM/DD), 商品(name), 成交價格(price), 成交數量(qty), 手續費(fee), 客戶應收付(total). Extract ALL rows. ';
-    prompt += 'IMPORTANT: For each Taiwan stock name, you MUST provide the correct Taiwan stock exchange ticker number (e.g. 聯發科=2454, 日月光投控=3711, 奇鋐=3017, 台積電=2330). ';
+    prompt += 'This is a Firstrade screenshot. ';
   }
-  prompt += 'Return ONLY a JSON array, no other text. Each trade: {"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD","ticker":"Taiwan 4-digit stock code (MUST provide for TW stocks)","name":"company name in Chinese","type":"買進 or 賣出","qty":number,"price":number,"fee":number,"total":number,"market":"' + marketHint + '"}';
+  prompt += 'Return ONLY a JSON object with these exact fields, no other text:\n';
+  prompt += '{"broker":"' + (selectedBroker||'unknown') + '","date":"YYYY/MM/DD format","ticker":"stock symbol","name":"company name","type":"買進 or 賣出","qty":number,"price":number,"fee":number or 0,"total":number,"market":"' + marketHint + '"}';
 
   try {
+    // Try 2.5-flash first, fallback to 2.0-flash if overloaded
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-    let data;
+    let data, lastErr;
     for (const model of models) {
-      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{ parts:[{ inline_data:{ mime_type:file.type, data:b64 } },{ text:prompt }] }], generationConfig:{ temperature:0.1 } })
+        body: JSON.stringify({ contents:[{ parts:[{ inline_data:{ mime_type:file.type, data:b64 } },{ text:prompt }] }] })
       });
       data = await r.json();
-      if (data.error && (data.error.code===503||data.error.code===429)) continue;
+      if (data.error && (data.error.code === 503 || data.error.code === 429)) { lastErr = data.error; continue; }
       break;
     }
-    if (data.error) throw new Error(data.error.message);
-    if (!data.candidates?.[0]) throw new Error('No response');
+    if (data.error) throw new Error(data.error.message + ' (code: ' + data.error.code + ')');
+    if (!data.candidates || !data.candidates[0]) throw new Error('No candidates: ' + JSON.stringify(data).slice(0,200));
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    console.log('Gemini raw text:', text.slice(0, 300));
+    if (!text) throw new Error('Empty response from Gemini');
+    const json = JSON.parse(text.replace(/```json|```/g,'').trim());
+    console.log('Screenshot JSON:', JSON.stringify(json));
+    window._lastScreenshotJson = json;
 
-    const text = data.candidates[0]?.content?.parts?.[0]?.text || '';
-    console.log('Raw response:', text.slice(0,500));
-    if (!text) throw new Error('Gemini 回傳空白，請重試');
-
-    let cleanText = text.replace(/```json|```/g,'').trim();
-    const s = cleanText.indexOf('['), e = cleanText.lastIndexOf(']');
-    if (s === -1 || e === -1) throw new Error('AI 未回傳 JSON 格式');
-    const trades = JSON.parse(cleanText.slice(s, e+1));
-
-    if (!trades.length) throw new Error('未偵測到任何交易');
-
-    // Known US stock full names
-    const usStockNames = {
-      'NVDA':'NVIDIA Corp', 'TSLA':'Tesla Inc', 'MSFT':'Microsoft Corp',
-      'AAPL':'Apple Inc', 'GOOG':'Alphabet Inc', 'AMZN':'Amazon.com Inc',
-      'QQQ':'Invesco QQQ Trust', 'VOO':'Vanguard S&P 500 ETF',
-      'AVGO':'Broadcom Inc', 'MU':'Micron Technology Inc',
-      'MRVL':'Marvell Technology Inc', 'NXPI':'NXP Semiconductors N.V.',
-      'IBKR':'Interactive Brokers Group', 'VRT':'Vertiv Holdings Co.',
-      'NOW':'ServiceNow Inc', 'UMAC':'Unusual Machines Inc',
-      'AMPX':'Amprius Technologies', 'WMT':'Walmart Inc',
-      'TGT':'Target Corp', 'DIS':'The Walt Disney Co',
-      'WBD':'Warner Bros. Discovery Inc', 'QS':'QuantumScape Corp',
-      'SLDP':'Solid Power Inc', 'STAA':'STAAR Surgical Co',
-      'ADBE':'Adobe Inc', 'META':'Meta Platforms Inc', 'NFLX':'Netflix Inc',
-      'AMD':'Advanced Micro Devices Inc', 'INTC':'Intel Corp',
-      'QCOM':'Qualcomm Inc', 'TXN':'Texas Instruments Inc',
-      'CRM':'Salesforce Inc', 'ORCL':'Oracle Corp', 'UBER':'Uber Technologies Inc',
+    // Normalize field names (AI may use different keys)
+    const normalized = {
+      broker: json.broker || json['券商'] || selectedBroker || '—',
+      date: json.date || json['日期'] || json['交易日期'] || '—',
+      ticker: json.ticker || json['ticker'] || json['股票代號'] || json['代號'] || '',
+      name: json.name || json['name'] || json['股票名稱'] || json['名稱'] || '',
+      type: json.type || json['type'] || json['交易類型'] || json['類型'] || '買進',
+      qty: json.qty || json['qty'] || json['數量'] || json['股數'] || 0,
+      price: json.price || json['price'] || json['成交價格'] || json['成交價'] || 0,
+      fee: json.fee || json['fee'] || json['手續費'] || 0,
+      total: json.total || json['total'] || json['總金額'] || json['收付總金額'] || 0,
+      market: json.market || json['market'] || json['市場'] || (selectedMarket === 'auto' ? 'tw' : selectedMarket)
     };
+    window._lastScreenshotJson = normalized;
+    console.log('Normalized JSON:', JSON.stringify(normalized));
 
-    trades.forEach(t => {
-      // Fix market based on broker
-      if (selectedBroker === 'Interactive Brokers' || selectedBroker === 'Firstrade') {
-        t.market = 'us';
-        // Auto-fill US stock name from ticker
-        if (t.ticker && (!t.name || t.name === t.ticker || t.name === '')) {
-          // Try from holdings first, then lookup table, then keep AI-provided name
-          const matched = holdings.us.find(h => h.ticker === t.ticker.toUpperCase());
-          if (matched) t.name = matched.name;
-          else if (usStockNames[t.ticker.toUpperCase()]) t.name = usStockNames[t.ticker.toUpperCase()];
-          // else keep whatever AI returned
-        }
-      } else if (selectedBroker === '台新' || selectedBroker === '元大') {
-        t.market = 'tw';
-        // Auto-fill TW ticker from name
-        if (!t.ticker || t.ticker === '') {
-          const matched = holdings.tw.find(h => h.name === t.name || h.name.includes(t.name) || t.name.includes(h.name));
-          if (matched) t.ticker = matched.ticker;
-        }
-      }
-    });
-
-    window._pendingTrades = trades;
-    renderTradeConfirm(trades);
-
-  } catch(err) {
-    console.error('processImage error:', err);
-    el.innerHTML = '<div class="alert alert-warn">辨識失敗：' + err.message + '</div>';
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-title">辨識結果</div>
+        <table class="data-table">
+          <tr><td>券商</td><td>${normalized.broker}</td></tr>
+          <tr><td>日期</td><td>${normalized.date}</td></tr>
+          <tr><td>股票</td><td>${normalized.ticker} ${normalized.name}</td></tr>
+          <tr><td>類型</td><td><span class="tag ${normalized.type==='買進'?'tag-buy':'tag-sell'}">${normalized.type}</span></td></tr>
+          <tr><td>數量</td><td>${normalized.qty}</td></tr>
+          <tr><td>成交價</td><td>${normalized.price}</td></tr>
+          <tr><td>手續費</td><td>${normalized.fee||0}</td></tr>
+          <tr><td>總金額</td><td>${normalized.total}</td></tr>
+          <tr><td>市場</td><td>${normalized.market==='tw'?'台股':'美股'}</td></tr>
+        </table>
+        <div style="margin-top:14px;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="writeToSheet()">✓ 寫入 Google Sheet</button>
+          <button class="btn btn-outline" onclick="document.getElementById('screenshot-result').innerHTML=''">重新上傳</button>
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="alert alert-warn">辨識失敗：${e.message}<br>請確認截圖清晰且包含交易資訊</div>`;
+    console.error('processImage error:', e);
   }
-}
-
-function renderTradeConfirm(trades) {
-  const el = document.getElementById('screenshot-result');
-  el.innerHTML = '<div class="card">' +
-    '<div class="card-title">辨識結果 — 共 ' + trades.length + ' 筆，確認後寫入</div>' +
-    '<div id="trade-confirm-list">' +
-    trades.map((t, i) =>
-      '<div id="trade-row-' + i + '" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">' +
-        '<div style="flex:1;min-width:200px">' +
-          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
-            '<input value="' + (t.ticker||'') + '" onchange="window._pendingTrades[' + i + '].ticker=this.value" placeholder="代號" style="width:70px;font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;font-family:var(--font-sans)">' +
-            '<span style="font-size:12px;font-weight:600">' + (t.name||'') + '</span>' +
-            '<span class="tag ' + (t.type==='買進'?'tag-buy':'tag-sell') + '">' + (t.type||'') + '</span>' +
-            '<span style="font-size:10px;color:var(--muted)">' + (t.market==='tw'?'台股':'美股') + '</span>' +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">' + (t.date||'') + ' · ' + (t.qty||0) + '股 @ ' + (t.price||0) + ' · 手續費 ' + (t.fee||0) + '</div>' +
-        '</div>' +
-        '<button onclick="removeTrade(' + i + ')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;flex-shrink:0">刪除</button>' +
-      '</div>'
-    ).join('') +
-    '</div>' +
-    '<div style="margin-top:14px;display:flex;gap:8px">' +
-      '<button class="btn btn-primary" onclick="writeAllTrades()">✓ 全部寫入 Google Sheet</button>' +
-      '<button class="btn btn-outline" onclick="clearScreenshot()">重新上傳</button>' +
-    '</div>' +
-  '</div>';
-}
-
-function clearScreenshot() {
-  document.getElementById('screenshot-result').innerHTML = '';
-  window._pendingTrades = [];
-}
-
-function removeTrade(i) {
-  window._pendingTrades.splice(i, 1);
-  if (!window._pendingTrades.length) {
-    document.getElementById('screenshot-result').innerHTML = '<div class="alert alert-info">已刪除所有筆，請重新上傳</div>';
-    return;
-  }
-  renderTradeConfirm(window._pendingTrades);
-}
-
-async function writeAllTrades() {
-  const trades = window._pendingTrades || [];
-  if (!trades.length) return alert('沒有待寫入的交易');
-
-  let success = 0, fail = 0;
-  for (const t of trades) {
-    try {
-      const sheetName = t.market === 'tw' ? '台股交易紀錄' : '美股交易紀錄';
-      const row = [
-        t.broker || '',
-        t.date || '',
-        t.ticker || '',
-        t.name || '',
-        '現股' + (t.type || '買進'),
-        Number(t.qty) || 0,
-        Number(t.price) || 0,
-        Number(t.fee) || 0,
-        0,
-        Number(t.total) || 0,
-        t.market === 'tw' ? '台股' : '美股'
-      ];
-      const res = await fetch(GAS_URL, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ sheet: sheetName, row })
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      success++;
-    } catch(e) {
-      fail++;
-      console.error('Write failed:', t.ticker, e);
-    }
-  }
-
-  document.getElementById('screenshot-result').innerHTML =
-    '<div class="alert ' + (fail?'alert-warn':'alert-success') + '">✓ 成功寫入 ' + success + ' 筆' + (fail?' ｜ 失敗 ' + fail + ' 筆':'') + '</div>';
-
-  window._pendingTrades = [];
-  await loadAllData();
 }
 
 async function writeToSheet() {
-  // Legacy single trade write - redirect to writeAllTrades
-  if (window._lastScreenshotJson) {
-    window._pendingTrades = [window._lastScreenshotJson];
-    await writeAllTrades();
+  const json = window._lastScreenshotJson;
+  if (!json) { alert('找不到辨識結果，請重新上傳'); return; }
+
+  // Debug: show what we're sending
+  console.log('Writing to sheet:', JSON.stringify(json));
+
+  const sheetName = json.market==='tw' ? '台股交易紀錄' : '美股交易紀錄';
+  const broker = json.broker || document.getElementById('screenshot-broker')?.value || '元大';
+  const row = [
+    broker,
+    json.date || '',
+    json.ticker || '',
+    json.name || '',
+    '現股' + (json.type || '買進'),
+    Number(json.qty) || 0,
+    Number(json.price) || 0,
+    Number(json.fee) || 0,
+    0,
+    Number(json.total) || 0,
+    json.market === 'tw' ? '台股' : '美股'
+  ];
+
+  console.log('Row:', JSON.stringify(row));
+  console.log('Sheet:', sheetName);
+
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheet: sheetName, row: row })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    console.log('GAS response:', JSON.stringify(data));
+    if (data.error) throw new Error(data.error);
+    document.getElementById('screenshot-result').innerHTML = '<div class="alert alert-success">✓ 已成功寫入 Google Sheet！</div>';
+    await loadAllData();
+  } catch(e) {
+    console.error('writeToSheet error:', e);
+    alert('寫入失敗：' + e.message + '\n請按 F12 查看 Console 的詳細錯誤');
   }
 }
-
 
 function fileToBase64(file) {
   return new Promise((res,rej) => { const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
@@ -2058,9 +1916,7 @@ async function syncNotion() {
 
 // ======== AI CHAT ========
 function buildAIContext() {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('zh-TW', {year:'numeric',month:'long',day:'numeric',weekday:'long'});
-  let ctx = '你是專業的台灣投資顧問，使用繁體中文回答。你有即時網路搜尋能力，可以查詢最新新聞與股市資訊。\n今天是 ' + dateStr + '。\n\n以下是使用者的完整投資資訊：\n\n';
+  let ctx = `你是專業的台灣投資顧問，使用繁體中文回答。以下是使用者的完整投資資訊：\n\n`;
   if (holdings.tw.length) {
     ctx += '【台股持倉】\n';
     holdings.tw.forEach(h => { ctx += `- ${h.ticker} ${h.name}：${h.qty}股，均成本${h.avgCost.toFixed(2)}，${h.currentPrice?'現價'+h.currentPrice.toFixed(2)+`，未實現${h.unrealized>=0?'+':''}${Math.round(h.unrealized)}`:'無即時價格'}，含息損益${h.withDivReturn?Math.round(h.withDivReturn):'—'}\n`; });
@@ -2116,7 +1972,7 @@ async function sendChat() {
     for (const model of models2) {
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ system_instruction:{parts:[{text:buildAIContext()}]}, contents, tools:[{google_search:{}}], generationConfig:{maxOutputTokens:8192,temperature:0.7} })
+        body:JSON.stringify({ system_instruction:{parts:[{text:buildAIContext()}]}, contents, generationConfig:{maxOutputTokens:8192,temperature:0.7} })
       });
       data = await r.json();
       if (data.error && (data.error.code === 503 || data.error.code === 429)) { lastErr2 = data.error; continue; }
@@ -2124,15 +1980,7 @@ async function sendChat() {
     }
     if (data.error) throw new Error(data.error.message + ' (code: ' + data.error.code + ')');
     if (!data.candidates || !data.candidates[0]) throw new Error('No response: ' + JSON.stringify(data));
-    // Extract text from all parts (search results may add multiple parts)
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    let reply = parts.map(p => p.text || '').join('').trim() || '發生錯誤，請再試一次。';
-    // Add search sources if available
-    const groundingChunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    if (groundingChunks.length > 0) {
-      const sources = groundingChunks.slice(0,3).map(c => c.web?.title || c.web?.uri || '').filter(Boolean);
-      if (sources.length) reply += '\n\n*資料來源：' + sources.join('、') + '*';
-    }
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '發生錯誤，請再試一次。';
     removeThinking(thinkId); addMsg('ai', reply);
     chatHistory.push({ role:'assistant', content:reply });
   } catch(e) {
@@ -2235,12 +2083,7 @@ function toggleStockInfo(elOrTicker) {
   const ticker = typeof elOrTicker === 'string' ? elOrTicker : elOrTicker.getAttribute('data-t');
   const el = document.getElementById('info-' + ticker);
   if (!el) return;
-  const isOpen = el.style.display !== 'none';
-  // Close all other open rows first
-  document.querySelectorAll('[id^="info-"]').forEach(row => {
-    if (row.id !== 'info-' + ticker) row.style.display = 'none';
-  });
-  el.style.display = isOpen ? 'none' : 'table-row';
+  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
 
 
@@ -2628,16 +2471,9 @@ function executeActionFromHoldings(cb) {
   item.done = true;
   item.executedAt = new Date().toLocaleDateString('zh-TW');
   executedItems.push(item);
-  // Clear stock status for all tickers in this item
-  const tickers = item.tickers ? item.tickers.map(r => r.ticker) : [item.ticker];
-  tickers.forEach(t => { if (t) delete stockStatuses[t]; });
-  localStorage.setItem('invest_stock_statuses', JSON.stringify(stockStatuses));
   localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
   localStorage.setItem('invest_executed_items', JSON.stringify(executedItems));
-  // Sync to cloud so other devices also update
-  saveSettingToCloud('actionItems', JSON.stringify(actionItems));
   renderHoldingsAction();
-  renderHoldings();
 }
 
 // ======== HOLDINGS EVENTS ========
@@ -2914,12 +2750,7 @@ async function loadSettingsFromCloud(cloudSettings) {
   }
   if (cloudSettings.actionItems) {
     const cloudActions = safeParse(cloudSettings.actionItems);
-    if (Array.isArray(cloudActions)) {
-      // Keep local done status - don't let cloud restore done items
-      const localDoneIds = new Set(actionItems.filter(i => i.done).map(i => String(i.id)));
-      actionItems = cloudActions.map(ca => localDoneIds.has(String(ca.id)) ? {...ca, done:true} : ca);
-      localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
-    }
+    if (Array.isArray(cloudActions) && cloudActions.length >= actionItems.length) { actionItems = cloudActions; localStorage.setItem('invest_action_items', JSON.stringify(actionItems)); }
   }
   if (cloudSettings.stockInfos) {
     const cloudInfos = safeParse(cloudSettings.stockInfos);
@@ -3046,145 +2877,7 @@ function saveActionItem() {
 }
 
 
-// ======== DEPOSIT / WITHDRAW ========
-let _depositField = '', _depositDirection = 1;
-
-function openDeposit(field, brokerName, currency, direction) {
-  _depositField = field;
-  _depositDirection = direction;
-  const isDeposit = direction === 1;
-  document.getElementById('deposit-modal-title').textContent = isDeposit ? '入金' : '出金';
-  document.getElementById('deposit-broker-display').textContent = brokerName + '（' + currency + '）';
-  document.getElementById('deposit-amount').value = '';
-  document.getElementById('deposit-note').value = '';
-  document.getElementById('deposit-confirm-btn').textContent = isDeposit ? '確認入金' : '確認出金';
-  document.getElementById('deposit-modal').classList.add('show');
-}
-
-function confirmDeposit() {
-  const amount = parseFloat(document.getElementById('deposit-amount').value) || 0;
-  if (!amount || amount <= 0) return alert('請填入金額');
-  const note = document.getElementById('deposit-note').value.trim();
-
-  // Save to history
-  const history = JSON.parse(localStorage.getItem('invest_deposit_history') || '[]');
-  history.unshift({
-    id: Date.now().toString(),
-    field: _depositField,
-    broker: document.getElementById('deposit-broker-display').textContent,
-    amount,
-    direction: _depositDirection,
-    note,
-    date: new Date().toLocaleDateString('zh-TW')
-  });
-  localStorage.setItem('invest_deposit_history', JSON.stringify(history));
-
-  // Update base cash
-  const base = JSON.parse(localStorage.getItem('invest_cash_base') || 'null') || cash;
-  base[_depositField] = (parseFloat(base[_depositField]) || 0) + _depositDirection * amount;
-  localStorage.setItem('invest_cash_base', JSON.stringify(base));
-  Object.assign(cash, base);
-  localStorage.setItem('invest_cash', JSON.stringify(cash));
-  saveSettingToCloud('cash', JSON.stringify(base));
-
-  closeModal('deposit-modal');
-  syncCashFromTrades();
-  renderCash();
-}
-
-function renderDepositHistory() {
-  const el = document.getElementById('deposit-history-list');
-  if (!el) return;
-  const history = JSON.parse(localStorage.getItem('invest_deposit_history') || '[]');
-  const threeMonthsAgo = new Date();
-  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-
-  const recent = history.filter(h => {
-    const d = new Date(h.date.replace(/\//g, '-'));
-    return d >= threeMonthsAgo;
-  });
-
-  const countEl = document.getElementById('deposit-count');
-  if (countEl) countEl.textContent = '（' + recent.length + ' 筆）';
-
-  if (!recent.length) {
-    el.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無入金/出金紀錄</div>';
-    return;
-  }
-
-  el.innerHTML = '<table class="data-table"><thead><tr><th>日期</th><th>帳戶</th><th>類型</th><th>金額</th><th>備註</th><th></th></tr></thead><tbody>' +
-    recent.map(h => {
-      const isUSD = h.field.includes('usd');
-      const cur = isUSD ? '$' : 'NT$';
-      const isIn = h.direction === 1;
-      return '<tr>' +
-        '<td>' + h.date + '</td>' +
-        '<td style="font-size:11px">' + (h.broker||'').split('（')[0] + '</td>' +
-        '<td><span style="font-size:11px;padding:1px 7px;border-radius:3px;background:' + (isIn?'rgba(26,92,46,0.1)':'rgba(139,32,32,0.1)') + ';color:' + (isIn?'var(--green)':'var(--red)') + '">' + (isIn?'入金':'出金') + '</span></td>' +
-        '<td class="' + (isIn?'pnl-up':'pnl-down') + '">' + (isIn?'＋':'－') + cur + ' ' + h.amount.toLocaleString() + '</td>' +
-        '<td style="font-size:11px;color:var(--muted)">' + (h.note||'—') + '</td>' +
-        '<td><button data-did="' + h.id + '" onclick="deleteDeposit(this.getAttribute(\'data-did\'))" style="font-size:10px;background:none;border:none;color:var(--muted);cursor:pointer">✕</button></td>' +
-        '</tr>';
-    }).join('') +
-  '</tbody></table>';
-}
-
-function deleteDeposit(id) {
-  if (!confirm('確定刪除這筆紀錄？（不會還原金額）')) return;
-  let history = JSON.parse(localStorage.getItem('invest_deposit_history') || '[]');
-  history = history.filter(h => h.id !== id);
-  localStorage.setItem('invest_deposit_history', JSON.stringify(history));
-  renderDepositHistory();
-}
-
-
-
-// ======== RENDER ACTION ITEMS (Notes page) ========
-function renderActionItems() {
-  const el = document.getElementById('action-list');
-  const countEl = document.getElementById('action-count');
-  if (!el) return;
-  const pending = Array.isArray(actionItems) ? actionItems.filter(i => !i.done) : [];
-  if (!pending.length) {
-    el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:30px">貼入筆記後點「AI 分析」產出行動清單</div>';
-    if (countEl) countEl.textContent = '';
-    return;
-  }
-  if (countEl) countEl.textContent = '(' + pending.length + ' 個待執行)';
-  const statusIcon = { triggered:'🟢', waiting:'⏳', watching:'👀' };
-  const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
-
-  const renderTable = (items, label) => {
-    if (!items.length) return '';
-    return '<div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">' + label + '</div>' +
-    '<div class="table-scroll"><table class="data-table" style="min-width:500px">' +
-    '<thead><tr><th></th><th>標的</th><th>策略</th><th>狀況</th><th>建議</th><th>狀態</th></tr></thead><tbody>' +
-    items.map(function(item) {
-      return '<tr style="' + (item.status==='triggered'?'background:rgba(26,92,46,0.05)':'') + '">' +
-      '<td><input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer"></td>' +
-      '<td><span class="ticker-badge">' + (item.name||item.ticker||'') + '</span></td>' +
-      '<td style="font-size:11px;color:var(--muted);max-width:120px">' + (item.strategy||'') + '</td>' +
-      '<td style="font-size:11px">' + (item.currentPrice?'現價 <strong>'+item.currentPrice+'</strong><br>':'') + (item.currentStatus||'') +
-        (item.earningsAlert ? '<div style="font-size:10px;color:var(--gold);margin-top:3px">📅 ' + item.earningsAlert + '</div>' : '') + '</td>' +
-      '<td style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';max-width:120px">' + (item.suggestion||'') + '</td>' +
-      '<td style="font-size:13px">' + (statusIcon[item.status]||'👀') + '</td>' +
-      '</tr>';
-    }).join('') + '</tbody></table></div>';
-  };
-
-  const twItems = pending.filter(i => !holdings.us.find(h => h.ticker === i.ticker));
-  const usItems = pending.filter(i => holdings.us.find(h => h.ticker === i.ticker));
-  el.innerHTML = renderTable(twItems, '🇹🇼 台股') + renderTable(usItems, '🇺🇸 美股');
-
-  // Executed list
-  const executed = executedItems.slice(-5).reverse();
-  const execEl = document.getElementById('executed-list');
-  if (execEl) execEl.innerHTML = executed.length
-    ? executed.map(i => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px"><span><strong>' + (i.name||i.ticker) + '</strong></span><span style="color:var(--muted)">' + (i.executedAt||'') + '</span></div>').join('')
-    : '<div style="font-size:12px;color:var(--muted)">執行後打勾的項目會出現在這裡</div>';
-}
-
-// ======== NOTE MODAL ========
+// ======== TECH NOTES ========
 function openNoteModal() {
   document.getElementById('nm-raw').value = '';
   document.getElementById('nm-summary').value = '';
@@ -3193,41 +2886,155 @@ function openNoteModal() {
   document.getElementById('note-modal').classList.add('show');
 }
 
-// ======== PRICE ALERTS ========
-let priceAlerts = JSON.parse(localStorage.getItem('invest_price_alerts') || '{}');
-let _alertTicker = '';
-
-function openPriceAlert(ticker, name, currentPrice) {
-  _alertTicker = ticker;
-  document.getElementById('price-alert-title').textContent = ticker + ' ' + name + ' 到價通知';
-  const existing = priceAlerts[ticker] || {};
-  document.getElementById('alert-buy').value = existing.buy || '';
-  document.getElementById('alert-sell').value = existing.sell || '';
-  document.getElementById('alert-note').value = existing.note || '';
-  document.getElementById('alert-current-price').textContent = currentPrice ? '現價：' + currentPrice : '';
-  document.getElementById('price-alert-modal').classList.add('show');
+async function aiSummarizeNote() {
+  const raw = document.getElementById('nm-raw').value.trim();
+  if (!raw) return alert('請先填入原始筆記');
+  const key = config.geminiKey;
+  if (!key) return alert('請先設定 Gemini API Key');
+  document.getElementById('nm-summary').value = '整理中...';
+  try {
+    const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    let data;
+    for (const model of models) {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contents:[{parts:[{text:'把以下投資筆記整理成2-3句清晰的重點摘要，保留具體數字和操作指令：\n' + raw}]}], generationConfig:{maxOutputTokens:200} })
+      });
+      data = await r.json();
+      if (data.error && (data.error.code===503||data.error.code===429)) continue;
+      break;
+    }
+    document.getElementById('nm-summary').value = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  } catch(e) { document.getElementById('nm-summary').value = ''; alert('AI整理失敗：'+e.message); }
 }
 
-function savePriceAlert() {
-  const buy = parseFloat(document.getElementById('alert-buy').value) || null;
-  const sell = parseFloat(document.getElementById('alert-sell').value) || null;
-  const note = document.getElementById('alert-note').value.trim();
-  if (!buy && !sell) { clearPriceAlert(); return; }
-  priceAlerts[_alertTicker] = { buy, sell, note, ticker: _alertTicker };
-  localStorage.setItem('invest_price_alerts', JSON.stringify(priceAlerts));
-  // Sync to GAS
-  saveSettingToCloud('priceAlerts', JSON.stringify(priceAlerts));
-  closeModal('price-alert-modal');
-  renderHoldings();
-  alert('✓ 到價通知已設定，GAS 會自動監控並發送 LINE 通知');
+function saveNote() {
+  const raw = document.getElementById('nm-raw').value.trim();
+  if (!raw) return alert('請填入筆記內容');
+  if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+  const note = {
+    id: Date.now().toString(), raw,
+    category: document.getElementById('nm-category').value,
+    tickers: document.getElementById('nm-tickers').value.split(',').map(t=>t.trim()).filter(Boolean),
+    summary: document.getElementById('nm-summary').value.trim(),
+    date: new Date().toLocaleDateString('zh-TW')
+  };
+  techNotes.unshift(note);
+  localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+  saveSettingToCloud('techNotes', JSON.stringify(techNotes));
+  closeModal('note-modal');
+  renderTechNotes();
 }
 
-function clearPriceAlert() {
-  delete priceAlerts[_alertTicker];
-  localStorage.setItem('invest_price_alerts', JSON.stringify(priceAlerts));
-  saveSettingToCloud('priceAlerts', JSON.stringify(priceAlerts));
-  closeModal('price-alert-modal');
-  renderHoldings();
+function renderTechNotes() {
+  const cats = ['全部','技術指標','個股策略','操作心法','產業觀察','風險提醒'];
+  const counts = {};
+  techNotes.forEach(n => { counts[n.category] = (counts[n.category]||0)+1; });
+  const catsEl = document.getElementById('notes-categories');
+  if (catsEl) catsEl.innerHTML = cats.map(cat => {
+    const count = cat==='全部' ? techNotes.length : (counts[cat]||0);
+    const active = currentNoteCategory === cat;
+    const bg = active ? 'background:var(--ink);color:var(--paper)' : 'color:var(--ink)';
+    return '<div data-c="' + cat + '" onclick="filterByCategory(this.dataset.c)" style="padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;' + bg + '"><span>' + cat + '</span><span style="opacity:0.6">' + count + '</span></div>';
+  }).join('');
+  const allTickers = [...new Set(techNotes.flatMap(n=>n.tickers))];
+  const tickersEl = document.getElementById('notes-tickers');
+  if (tickersEl) tickersEl.innerHTML = allTickers.map(t =>
+    '<span data-tk="' + t + '" onclick="filterByTicker(this.dataset.tk)" style="font-size:11px;padding:3px 7px;background:var(--paper2);border:1px solid var(--border);border-radius:4px;cursor:pointer">' + t + '</span>'
+  ).join('');
+  filterNotes();
+}
+
+function filterByCategory(cat) { currentNoteCategory = cat; renderTechNotes(); }
+function filterByTicker(ticker) { const el = document.getElementById('notes-search'); if (el) el.value = ticker; filterNotes(); }
+
+function filterNotes() {
+  const search = (document.getElementById('notes-search')?.value||'').toLowerCase();
+  let filtered = techNotes;
+  if (currentNoteCategory !== '全部') filtered = filtered.filter(n => n.category === currentNoteCategory);
+  if (search) filtered = filtered.filter(n =>
+    n.raw.toLowerCase().includes(search) || (n.summary||'').toLowerCase().includes(search) ||
+    n.tickers.some(t => t.toLowerCase().includes(search))
+  );
+  const el = document.getElementById('notes-list');
+  if (!el) return;
+  if (!filtered.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">沒有符合的筆記</div>'; return; }
+  const catEmoji = {'技術指標':'📊','個股策略':'🎯','操作心法':'🧠','產業觀察':'🏭','風險提醒':'⚠️'};
+  el.innerHTML = filtered.map(n =>
+    '<div style="background:var(--paper2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;border-left:3px solid ' + (catColors[n.category]||'var(--border)') + '">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+        '<span style="font-size:11px;font-weight:600">' + (catEmoji[n.category]||'') + ' ' + n.category + '</span>' +
+        n.tickers.map(t=>'<span style="font-size:10px;padding:2px 6px;background:var(--paper3);border-radius:3px;color:var(--muted)">' + t + '</span>').join('') +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<span style="font-size:11px;color:var(--muted)">' + n.date + '</span>' +
+        '<button data-nid="' + n.id + '" onclick="deleteNote(this.dataset.nid)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">✕</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.5;background:var(--paper);padding:6px 8px;border-radius:4px">"' + n.raw + '"</div>' +
+    (n.summary ? '<div style="font-size:12px;line-height:1.6;color:var(--ink)">' + n.summary + '</div>' : '') +
+    '</div>'
+  ).join('');
+}
+
+function deleteNote(id) {
+  if (!confirm('確定刪除？')) return;
+  techNotes = techNotes.filter(n => n.id !== id);
+  localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
+  renderTechNotes();
+}
+
+function switchNotesTab(tab, el) {
+  document.querySelectorAll('#panel-notes .tab-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  ['action','tech','industry','weekly'].forEach(t => {
+    const el2 = document.getElementById('notes-tab-' + t);
+    if (el2) el2.style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'tech') renderTechNotes();
+  if (tab === 'action') renderActionItems();
+}
+
+// ======== RENDER ACTION ITEMS ========
+function renderActionItems() {
+  const el = document.getElementById('action-list');
+  const countEl = document.getElementById('action-count');
+  if (!el) return;
+  const pending = Array.isArray(actionItems) ? actionItems.filter(i => !i.done) : [];
+  if (!pending.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:30px">貼入筆記後點「AI 分析」產出行動清單</div>';
+    if (countEl) countEl.textContent = '';
+    // Update executed list
+    const execEl = document.getElementById('executed-list');
+    if (execEl) execEl.innerHTML = '<div style="font-size:12px;color:var(--muted)">執行後打勾的項目會出現在這裡</div>';
+    return;
+  }
+  if (countEl) countEl.textContent = '(' + pending.length + ' 個待執行)';
+  const statusIcon = { triggered:'🟢', waiting:'⏳', watching:'👀' };
+  const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
+  const twItems = pending.filter(i => !holdings.us.find(h => h.ticker === i.ticker));
+  const usItems = pending.filter(i => holdings.us.find(h => h.ticker === i.ticker));
+  const renderTable = (items, label) => {
+    if (!items.length) return '';
+    return '<div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">' + label + '</div>' +
+    '<div class="table-scroll"><table class="data-table" style="min-width:500px">' +
+    '<thead><tr><th></th><th>標的</th><th>策略</th><th>狀況</th><th>建議</th><th>狀態</th></tr></thead><tbody>' +
+    items.map(function(item) {
+      return '<tr><td><input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer"></td>' +
+      '<td><span class="ticker-badge">' + (item.name||item.ticker||'') + '</span></td>' +
+      '<td style="font-size:11px;color:var(--muted);max-width:120px">' + (item.strategy||'') + '</td>' +
+      '<td style="font-size:11px">' + (item.currentStatus||'') + '</td>' +
+      '<td style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';max-width:120px">' + (item.suggestion||'') + '</td>' +
+      '<td>' + (statusIcon[item.status]||'👀') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+  };
+  el.innerHTML = renderTable(twItems, '🇹🇼 台股') + renderTable(usItems, '🇺🇸 美股');
+  const executed = executedItems.slice(-5).reverse();
+  const execEl = document.getElementById('executed-list');
+  if (execEl) execEl.innerHTML = executed.length
+    ? executed.map(i => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px"><span>' + (i.name||i.ticker||'') + '</span><span style="color:var(--muted)">' + (i.executedAt||'') + '</span></div>').join('')
+    : '<div style="font-size:12px;color:var(--muted)">執行後打勾的項目會出現在這裡</div>';
 }
 
 // ======== INIT ========
@@ -3289,57 +3096,6 @@ loadAllData();
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('action-item-modal')">取消</button>
       <button class="btn btn-primary" onclick="saveActionItem()">儲存</button>
-    </div>
-  </div>
-</div>
-
-<!-- Deposit/Withdraw Modal -->
-<div class="modal-overlay" id="deposit-modal">
-  <div class="modal" style="max-width:380px">
-    <h2 id="deposit-modal-title">入金</h2>
-    <div class="input-group">
-      <label class="input-label">帳戶</label>
-      <div id="deposit-broker-display" style="font-size:14px;font-weight:600;padding:8px 0"></div>
-    </div>
-    <div class="input-group">
-      <label class="input-label">金額</label>
-      <input type="number" id="deposit-amount" placeholder="0" min="0" step="any">
-    </div>
-    <div class="input-group">
-      <label class="input-label">備註（選填）</label>
-      <input type="text" id="deposit-note" placeholder="例如：薪資入金、轉帳">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('deposit-modal')">取消</button>
-      <button class="btn btn-primary" id="deposit-confirm-btn" onclick="confirmDeposit()">確認</button>
-    </div>
-  </div>
-</div>
-
-<!-- Price Alert Modal -->
-<div class="modal-overlay" id="price-alert-modal">
-  <div class="modal" style="max-width:400px">
-    <h2 id="price-alert-title">到價通知</h2>
-    <div class="alert alert-info" style="margin-bottom:14px;font-size:11px">設定後自動同步到 GAS，達到目標價時發送 LINE 通知</div>
-    <div class="form-grid">
-      <div class="input-group">
-        <label class="input-label">目標買入價（跌到通知）</label>
-        <input type="number" id="alert-buy" placeholder="留空表示不通知" step="any">
-      </div>
-      <div class="input-group">
-        <label class="input-label">目標賣出價（漲到通知）</label>
-        <input type="number" id="alert-sell" placeholder="留空表示不通知" step="any">
-      </div>
-    </div>
-    <div class="input-group">
-      <label class="input-label">備註</label>
-      <input type="text" id="alert-note" placeholder="例如：等回檔買入">
-    </div>
-    <div id="alert-current-price" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('price-alert-modal')">取消</button>
-      <button class="btn btn-outline" style="color:var(--red)" onclick="clearPriceAlert()">清除通知</button>
-      <button class="btn btn-primary" onclick="savePriceAlert()">儲存</button>
     </div>
   </div>
 </div>
