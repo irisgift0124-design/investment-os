@@ -919,8 +919,8 @@ async function loadAllData() {
       fetchPricesInBackground(twHoldings, usHoldings);
     }
   } catch(e) {
-    console.error(e);
-    showHoldingsError(e.message);
+    console.error('loadAllData error:', e);
+    showHoldingsError(e.message + ' | ' + (e.stack||'').split('\n')[1]);
     updateGSStatus(false);
   }
 }
