@@ -798,6 +798,7 @@ let holdings = { tw: [], us: [], history: [], dividends: [], allTrades: [] };
 let sheetStockInfos = {}; // from Google Sheet 股票簡介 tab
 let stockStatuses = JSON.parse(localStorage.getItem('invest_stock_statuses') || '{}');
 let stockPeriods = JSON.parse(localStorage.getItem('invest_stock_periods') || '{}');
+let priceAlerts = JSON.parse(localStorage.getItem('invest_price_alerts') || '{}');
 let prices = {};
 let stockInfos = JSON.parse(localStorage.getItem('invest_stock_infos') || '{}');
 let techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
