@@ -2868,7 +2868,9 @@ async function analyzeActionNotes() {
       createdAt: todayStr
     }));
     localStorage.setItem('invest_action_items', JSON.stringify(actionItems));
+    saveSettingToCloud('actionItems', JSON.stringify(actionItems));
     renderActionItems();
+    renderHoldingsAction();
   } catch(e) {
     document.getElementById('action-list').innerHTML = '<div style="color:var(--red);font-size:12px;padding:10px">分析失敗：' + e.message + '</div>';
   }
