@@ -1230,6 +1230,7 @@ function showHoldingsError(msg) {
 }
 
 function renderHoldings() {
+  try {
   // Sync cash from trades before rendering so numbers match cash page
   syncCashFromTrades();
 
@@ -1368,6 +1369,12 @@ function renderHoldings() {
   updateSideHoldings();
   renderHoldingsEvents();
   renderHoldingsAction();
+  } catch(e) {
+    console.error('renderHoldings error:', e);
+    document.getElementById('holdings-loading').style.display = 'none';
+    document.getElementById('holdings-error').style.display = 'block';
+    document.getElementById('holdings-error-msg').textContent = 'renderHoldings 錯誤：' + e.message;
+  }
 }
 
 function switchTab(tab, el, group) {
