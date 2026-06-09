@@ -327,6 +327,10 @@ textarea { resize:vertical; min-height:70px; }
       </div>
       <div class="content">
         <div class="summary-row" id="perf-summary"></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">換股追蹤 <button onclick="openSwapModal()" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-family:var(--font-sans)">＋ 新增換股紀錄</button></div>
+          <div id="swap-list"><div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無換股紀錄</div></div>
+        </div>
         <div class="perf-grid">
           <div class="chart-box"><div class="chart-title">已實現損益（月）</div><canvas id="chart-monthly"></canvas></div>
           <div class="chart-box"><div class="chart-title">持倉市場分佈</div><canvas id="chart-alloc"></canvas></div>
@@ -1593,6 +1597,7 @@ function calcRealizedPnL() {
 }
 
 function renderPerformance() {
+  renderSwapList();
   const monthlyMap = calcRealizedPnL();
   const months = Object.keys(monthlyMap).sort();
   let cumulative = 0;
@@ -3356,6 +3361,165 @@ function deleteNote(id) {
   renderTechNotes();
 }
 
+
+// ======== SWAP TRACKER ========
+let swapRecords = JSON.parse(localStorage.getItem('invest_swaps') || '[]');
+
+function openSwapModal() {
+  // Populate sell trades dropdown
+  const sellTrades = (holdings.allTrades || []).filter(t => !t.isBuy).slice().reverse();
+  const buyTrades = (holdings.allTrades || []).filter(t => t.isBuy).slice().reverse();
+
+  const sellSel = document.getElementById('swap-sell-select');
+  const buySel = document.getElementById('swap-buy-select');
+
+  sellSel.innerHTML = '<option value="">-- 選擇賣出交易 --</option>' +
+    sellTrades.map((t, i) => '<option value="' + i + '">' + t.date + ' 賣出 ' + t.name + ' ' + t.qty + '股 @' + t.price + '</option>').join('');
+
+  buySel.innerHTML = '<option value="">-- 選擇買入交易 --</option>' +
+    buyTrades.map((t, i) => '<option value="' + i + '">' + t.date + ' 買入 ' + t.name + ' ' + t.qty + '股 @' + t.price + '</option>').join('');
+
+  document.getElementById('swap-sell-info').innerHTML = '';
+  document.getElementById('swap-buy-info').innerHTML = '';
+  document.getElementById('swap-reason').value = '';
+
+  // Store trades for reference
+  window._swapSellTrades = sellTrades;
+  window._swapBuyTrades = buyTrades;
+
+  document.getElementById('swap-modal').classList.add('show');
+}
+
+function onSwapSellSelect() {
+  const idx = document.getElementById('swap-sell-select').value;
+  if (idx === '') { document.getElementById('swap-sell-info').innerHTML = ''; return; }
+  const t = window._swapSellTrades[parseInt(idx)];
+  document.getElementById('swap-sell-info').innerHTML =
+    '<strong>' + t.ticker + ' ' + t.name + '</strong><br>' +
+    t.qty + '股 × ' + t.price + ' = ' + (t.market==='tw'?'NT$':'$') + Math.round(t.total).toLocaleString();
+}
+
+function onSwapBuySelect() {
+  const idx = document.getElementById('swap-buy-select').value;
+  if (idx === '') { document.getElementById('swap-buy-info').innerHTML = ''; return; }
+  const t = window._swapBuyTrades[parseInt(idx)];
+  document.getElementById('swap-buy-info').innerHTML =
+    '<strong>' + t.ticker + ' ' + t.name + '</strong><br>' +
+    t.qty + '股 × ' + t.price + ' = ' + (t.market==='tw'?'NT$':'$') + Math.round(t.total).toLocaleString();
+}
+
+function saveSwap() {
+  const sellIdx = document.getElementById('swap-sell-select').value;
+  const buyIdx = document.getElementById('swap-buy-select').value;
+  const reason = document.getElementById('swap-reason').value.trim();
+
+  if (sellIdx === '' || buyIdx === '') return alert('請選擇換出和換入的交易');
+
+  const sellTrade = window._swapSellTrades[parseInt(sellIdx)];
+  const buyTrade = window._swapBuyTrades[parseInt(buyIdx)];
+
+  const record = {
+    id: Date.now().toString(),
+    date: new Date().toLocaleDateString('zh-TW'),
+    reason,
+    sell: {
+      ticker: sellTrade.ticker, name: sellTrade.name,
+      qty: sellTrade.qty, price: sellTrade.price,
+      total: sellTrade.total, date: sellTrade.date,
+      market: sellTrade.market
+    },
+    buy: {
+      ticker: buyTrade.ticker, name: buyTrade.name,
+      qty: buyTrade.qty, price: buyTrade.price,
+      total: buyTrade.total, date: buyTrade.date,
+      market: buyTrade.market
+    }
+  };
+
+  swapRecords.unshift(record);
+  localStorage.setItem('invest_swaps', JSON.stringify(swapRecords));
+  closeModal('swap-modal');
+  renderSwapList();
+}
+
+function renderSwapList() {
+  const el = document.getElementById('swap-list');
+  if (!el) return;
+  if (!swapRecords.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">尚無換股紀錄</div>';
+    return;
+  }
+
+  el.innerHTML = swapRecords.map(r => {
+    // Get current prices
+    const sellPriceKey = r.sell.market === 'tw' ? r.sell.ticker + '.TW' : r.sell.ticker;
+    const buyPriceKey = r.buy.market === 'tw' ? r.buy.ticker + '.TW' : r.buy.ticker;
+    const sellNow = prices[sellPriceKey];
+    const buyNow = prices[buyPriceKey];
+
+    // Calculate performance
+    const cur = r.sell.market === 'tw' ? 'NT$' : '$';
+    const sellCost = r.sell.total;
+    const buyCost = r.buy.total;
+
+    // If still holding buy stock
+    const buyNowVal = buyNow ? buyNow * r.buy.qty : null;
+    const buyPnl = buyNowVal ? buyNowVal - buyCost : null;
+    const buyPct = buyPnl !== null ? (buyPnl / buyCost * 100) : null;
+
+    // Hypothetical: if kept sell stock
+    const sellHypVal = sellNow ? sellNow * r.sell.qty : null;
+    const sellHypPnl = sellHypVal ? sellHypVal - sellCost : null;
+    const sellHypPct = sellHypPnl !== null ? (sellHypPnl / sellCost * 100) : null;
+
+    // Swap alpha = buy performance - sell hypothetical performance
+    const alpha = (buyPct !== null && sellHypPct !== null) ? buyPct - sellHypPct : null;
+
+    const fmt = (n, cur) => n >= 0 ? '+' + cur + Math.round(Math.abs(n)).toLocaleString() : '-' + cur + Math.round(Math.abs(n)).toLocaleString();
+    const fmtPct = p => (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+
+    return '<div style="border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<div style="font-size:12px;font-weight:600">' +
+          '<span style="color:var(--red)">' + r.sell.name + '</span>' +
+          ' → ' +
+          '<span style="color:var(--green)">' + r.buy.name + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          (alpha !== null ? '<span style="font-size:12px;font-weight:600;color:' + (alpha >= 0 ? 'var(--green)' : 'var(--red)') + '">' + fmtPct(alpha) + ' 換股損益</span>' : '') +
+          '<button data-sid="' + r.id + '" onclick="deleteSwap(this.dataset.sid)" style="font-size:10px;background:none;border:none;color:var(--muted);cursor:pointer">✕</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">' +
+        '<div style="background:var(--paper2);padding:8px 10px;border-radius:4px">' +
+          '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">換出 ' + r.sell.ticker + ' · ' + r.sell.date + '</div>' +
+          '<div style="font-size:11px">' + r.sell.qty + '股 @ ' + r.sell.price + '</div>' +
+          (sellHypPnl !== null ?
+            '<div style="font-size:11px;color:var(--muted);margin-top:3px">如未換：<span style="color:' + (sellHypPnl>=0?'var(--green)':'var(--red)') + '">' + fmt(sellHypPnl, cur) + ' (' + fmtPct(sellHypPct) + ')</span></div>' :
+            '<div style="font-size:10px;color:var(--muted);margin-top:3px">無法取得現價</div>'
+          ) +
+        '</div>' +
+        '<div style="background:var(--paper2);padding:8px 10px;border-radius:4px">' +
+          '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">換入 ' + r.buy.ticker + ' · ' + r.buy.date + '</div>' +
+          '<div style="font-size:11px">' + r.buy.qty + '股 @ ' + r.buy.price + '</div>' +
+          (buyPnl !== null ?
+            '<div style="font-size:11px;color:var(--muted);margin-top:3px">實際損益：<span style="color:' + (buyPnl>=0?'var(--green)':'var(--red)') + '">' + fmt(buyPnl, cur) + ' (' + fmtPct(buyPct) + ')</span></div>' :
+            '<div style="font-size:10px;color:var(--muted);margin-top:3px">無法取得現價</div>'
+          ) +
+        '</div>' +
+      '</div>' +
+      (r.reason ? '<div style="font-size:11px;color:var(--muted);font-style:italic">換股原因：' + r.reason + '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+function deleteSwap(id) {
+  if (!confirm('確定刪除這筆換股紀錄？')) return;
+  swapRecords = swapRecords.filter(r => r.id !== id);
+  localStorage.setItem('invest_swaps', JSON.stringify(swapRecords));
+  renderSwapList();
+}
+
 // ======== INIT ========
 updateGeminiStatus();
 if (config.notionToken) document.getElementById('notion-sync-btn').style.display='inline-block';
@@ -3466,6 +3630,43 @@ loadAllData();
       <button class="btn btn-outline" onclick="closeModal('price-alert-modal')">取消</button>
       <button class="btn btn-outline" style="color:var(--red)" onclick="clearPriceAlert()">清除通知</button>
       <button class="btn btn-primary" onclick="savePriceAlert()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Swap Tracker Modal -->
+<div class="modal-overlay" id="swap-modal">
+  <div class="modal" style="max-width:540px">
+    <h2>新增換股紀錄</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div>
+        <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">換出（賣出）</div>
+        <div class="input-group">
+          <label class="input-label">選擇賣出交易</label>
+          <select id="swap-sell-select" onchange="onSwapSellSelect()" style="font-size:11px">
+            <option value="">-- 選擇 --</option>
+          </select>
+        </div>
+        <div id="swap-sell-info" style="font-size:11px;color:var(--muted);padding:6px;background:var(--paper2);border-radius:4px;min-height:40px"></div>
+      </div>
+      <div>
+        <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">換入（買入）</div>
+        <div class="input-group">
+          <label class="input-label">選擇買入交易</label>
+          <select id="swap-buy-select" onchange="onSwapBuySelect()" style="font-size:11px">
+            <option value="">-- 選擇 --</option>
+          </select>
+        </div>
+        <div id="swap-buy-info" style="font-size:11px;color:var(--muted);padding:6px;background:var(--paper2);border-radius:4px;min-height:40px"></div>
+      </div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">換股邏輯（為什麼換？）</label>
+      <textarea id="swap-reason" style="height:60px;resize:none" placeholder="例如：TSLA 短期超漲，換成基期更低的 NVDA 等待財報催化"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('swap-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveSwap()">儲存</button>
     </div>
   </div>
 </div>
