@@ -3188,6 +3188,7 @@ function renderActionItems() {
 
 // ======== NOTE MODAL ========
 function openNoteModal() {
+  window._editingNoteId = null;
   document.getElementById('nm-raw').value = '';
   document.getElementById('nm-summary').value = '';
   document.getElementById('nm-tickers').value = '';
@@ -3260,14 +3261,20 @@ function saveNote() {
   const raw = document.getElementById('nm-raw').value.trim();
   if (!raw) return alert('請填入筆記內容');
   if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
+  const editId = window._editingNoteId;
   const note = {
-    id: Date.now().toString(), raw,
+    id: editId || Date.now().toString(), raw,
     category: document.getElementById('nm-category').value,
     tickers: document.getElementById('nm-tickers').value.split(',').map(t=>t.trim()).filter(Boolean),
     summary: document.getElementById('nm-summary').value.trim(),
     date: new Date().toLocaleDateString('zh-TW')
   };
-  techNotes.unshift(note);
+  if (editId) {
+    techNotes = techNotes.map(n => n.id === editId ? note : n);
+    window._editingNoteId = null;
+  } else {
+    techNotes.unshift(note);
+  }
   localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
   saveSettingToCloud('techNotes', JSON.stringify(techNotes));
   closeModal('note-modal');
@@ -3323,10 +3330,23 @@ function filterNotes() {
         '<button data-nid="' + n.id + '" onclick="deleteNote(this.dataset.nid)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">✕</button>' +
       '</div>' +
     '</div>' +
-    '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.5;background:var(--paper);padding:6px 8px;border-radius:4px">"' + n.raw + '"</div>' +
-    (n.summary ? '<div style="font-size:12px;line-height:1.6;color:var(--ink)">' + n.summary + '</div>' : '') +
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.7;background:var(--paper);padding:8px 10px;border-radius:4px;white-space:pre-wrap">' + n.raw + '</div>' +
+    (n.summary ? '<div style="font-size:12px;line-height:1.6;color:var(--ink);margin-top:6px">' + n.summary + '</div>' : '') +
+    '<div style="margin-top:8px"><button data-nid2="' + n.id + '" onclick="editNote(this.dataset.nid2)" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;padding:2px 8px;cursor:pointer">編輯</button></div>' +
     '</div>'
   ).join('');
+}
+
+function editNote(id) {
+  const note = techNotes.find(n => n.id === id);
+  if (!note) return;
+  document.getElementById('nm-raw').value = note.raw;
+  document.getElementById('nm-summary').value = note.summary || '';
+  document.getElementById('nm-tickers').value = note.tickers.join(', ');
+  document.getElementById('nm-category').value = note.category;
+  // Store editing id
+  window._editingNoteId = id;
+  document.getElementById('note-modal').classList.add('show');
 }
 
 function deleteNote(id) {
