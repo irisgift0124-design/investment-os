@@ -393,16 +393,7 @@ textarea { resize:vertical; min-height:70px; }
               <div id="executed-list" style="font-size:12px;color:var(--muted)">執行後打勾的項目會出現在這裡</div>
             </div>
           </div>
-          <!-- 即將發生事件 -->
-        <div class="card" style="margin-bottom:16px">
-          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>🔔 近期重要事件</span>
-            <button class="btn btn-outline btn-sm" onclick="loadMarketEvents()">⟳ 更新</button>
-          </div>
-          <div id="market-events-list">
-            <div style="font-size:12px;color:var(--muted);text-align:center;padding:16px">點「更新」載入近期 AI/科技/財報事件</div>
-          </div>
-        </div>
+  
 
         <div class="card">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -949,7 +940,9 @@ function parseRows(rows, market) {
     const c = rows[i];
     if (!c || c.length < 5) continue;
     const broker = String(c[0]||'').trim();
-    const date = String(c[1]||'').trim();
+    // Clean date: remove ISO time suffix (T00:00:00.000Z)
+    const rawDate = String(c[1]||'').trim();
+    const date = rawDate.includes('T') ? rawDate.split('T')[0].replace(/-/g,'/') : rawDate;
     const ticker = String(c[2]||'').trim();
     const name = String(c[3]||'').trim();
     const type = String(c[4]||'').trim();
@@ -2823,12 +2816,16 @@ async function analyzeActionNotes() {
     '\n輸出格式（嚴格遵守）：[{"ticker":"代號","name":"名稱","strategy":"策略","currentStatus":"狀況","currentPrice":0,"status":"waiting","suggestion":"建議","urgency":"medium","earningsAlert":""}]';
 
   try {
-    const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    const models = ['gemini-2.0-flash', 'gemini-2.5-flash'];
     let data, lastError;
     for (const model of models) {
+      // responseMimeType only supported in 2.0
+      const genConfig = model === 'gemini-2.0-flash'
+        ? {maxOutputTokens:3000, temperature:0.1, responseMimeType:'application/json'}
+        : {maxOutputTokens:3000, temperature:0.1};
       const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:{maxOutputTokens:2000, temperature:0.1, responseMimeType:'application/json'} })
+        body: JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig: genConfig })
       });
       data = await r.json();
       if (data.error) { lastError = data.error; if (data.error.code===503||data.error.code===429) continue; }
