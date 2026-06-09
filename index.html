@@ -2593,29 +2593,31 @@ function renderHoldingsAction() {
   const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
   const twItems = pending.filter(i => !holdings.us.find(h => h.ticker === i.ticker));
   const usItems = pending.filter(i => holdings.us.find(h => h.ticker === i.ticker));
-  const renderGroup = (items, label) => {
+
+  const renderCards = (items, label) => {
     if (!items.length) return '';
-    return '<div style="font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:8px 0 4px">' + label + '</div>' +
+    return '<div style="font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:8px 0 6px">' + label + '</div>' +
     items.map(item =>
-      '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid rgba(200,191,170,0.3)">' +
-        '<input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer;flex-shrink:0;margin-top:3px">' +
-        '<div style="min-width:55px"><span class="ticker-badge" style="font-size:10px">' + (item.tickers ? item.tickers.map(r => r.name||r.ticker).join(', ') : item.name||item.ticker) + '</span></div>' +
+      '<div style="background:var(--paper);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;gap:10px;align-items:flex-start">' +
+        '<input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer;flex-shrink:0;margin-top:2px">' +
         '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:11px;color:var(--muted)">' + (item.strategy||'') + '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">' +
+            '<span class="ticker-badge" style="font-size:10px">' + (item.name||item.ticker||'') + '</span>' +
+            '<span>' + (statusIcon[item.status]||'👀') + '</span>' +
+          '</div>' +
+          (item.strategy ? '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">' + item.strategy + '</div>' : '') +
           (item.suggestion ? '<div style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';line-height:1.5">' + item.suggestion + '</div>' : '') +
         '</div>' +
-        '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">' +
-          '<button data-aid="' + item.id + '" onclick="openActionItemModal(this.getAttribute(\'data-aid\'))" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;padding:1px 6px;cursor:pointer">編輯</button>' +
-          '<span style="font-size:14px">' + (statusIcon[item.status]||'👀') + '</span>' +
-        '</div>' +
+        '<button data-aid="' + item.id + '" onclick="openActionItemModal(this.getAttribute(\'data-aid\'))" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;padding:1px 6px;cursor:pointer;flex-shrink:0">編輯</button>' +
       '</div>'
     ).join('');
   };
+
   el.innerHTML = '<div class="card" style="margin-bottom:0">' +
     '<div class="card-title"><span>今日行動清單 <span style="font-size:10px;color:var(--muted)">(' + pending.length + ' 個待執行)</span></span>' +
     '<div style="display:flex;gap:6px"><button onclick="openActionItemModal()" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">＋ 新增</button>' +
     '<button onclick="nav(\'notes\')" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer">分析 →</button></div></div>' +
-    renderGroup(twItems, '🇹🇼 台股') + renderGroup(usItems, '🇺🇸 美股') +
+    renderCards(twItems, '🇹🇼 台股') + renderCards(usItems, '🇺🇸 美股') +
   '</div>';
 }
 
@@ -3152,204 +3154,47 @@ function renderActionItems() {
   if (!pending.length) {
     el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:30px">貼入筆記後點「AI 分析」產出行動清單</div>';
     if (countEl) countEl.textContent = '';
+    const execEl = document.getElementById('executed-list');
+    if (execEl) execEl.innerHTML = '<div style="font-size:12px;color:var(--muted)">執行後打勾的項目會出現在這裡</div>';
     return;
   }
   if (countEl) countEl.textContent = '(' + pending.length + ' 個待執行)';
   const statusIcon = { triggered:'🟢', waiting:'⏳', watching:'👀' };
   const urgencyColor = { high:'var(--red)', medium:'var(--gold)', low:'var(--muted)' };
 
-  const renderTable = (items, label) => {
-    if (!items.length) return '';
-    return '<div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">' + label + '</div>' +
-    '<div class="table-scroll"><table class="data-table" style="min-width:500px">' +
-    '<thead><tr><th></th><th>標的</th><th>策略</th><th>狀況</th><th>建議</th><th>狀態</th></tr></thead><tbody>' +
-    items.map(function(item) {
-      return '<tr style="' + (item.status==='triggered'?'background:rgba(26,92,46,0.05)':'') + '">' +
-      '<td><input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer"></td>' +
-      '<td><span class="ticker-badge">' + (item.name||item.ticker||'') + '</span></td>' +
-      '<td style="font-size:11px;color:var(--muted);max-width:120px">' + (item.strategy||'') + '</td>' +
-      '<td style="font-size:11px">' + (item.currentPrice?'現價 <strong>'+item.currentPrice+'</strong><br>':'') + (item.currentStatus||'') +
-        (item.earningsAlert ? '<div style="font-size:10px;color:var(--gold);margin-top:3px">📅 ' + item.earningsAlert + '</div>' : '') + '</td>' +
-      '<td style="font-size:11px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';max-width:120px">' + (item.suggestion||'') + '</td>' +
-      '<td style="font-size:13px">' + (statusIcon[item.status]||'👀') + '</td>' +
-      '</tr>';
-    }).join('') + '</tbody></table></div>';
-  };
-
   const twItems = pending.filter(i => !holdings.us.find(h => h.ticker === i.ticker));
   const usItems = pending.filter(i => holdings.us.find(h => h.ticker === i.ticker));
-  el.innerHTML = renderTable(twItems, '🇹🇼 台股') + renderTable(usItems, '🇺🇸 美股');
 
-  // Executed list
+  const renderCards = (items, label) => {
+    if (!items.length) return '';
+    return '<div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:12px 0 8px">' + label + '</div>' +
+    items.map(item =>
+      '<div style="background:var(--paper);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start">' +
+        '<input type="checkbox" data-id="' + item.id + '" onchange="executeActionFromHoldings(this)" style="cursor:pointer;flex-shrink:0;margin-top:3px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+            '<span class="ticker-badge">' + (item.name||item.ticker||'') + '</span>' +
+            '<span style="font-size:11px">' + (statusIcon[item.status]||'👀') + '</span>' +
+            (item.urgency==='high' ? '<span style="font-size:10px;padding:1px 6px;background:rgba(139,32,32,0.1);color:var(--red);border-radius:3px">緊急</span>' : '') +
+          '</div>' +
+          (item.strategy ? '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;line-height:1.5">' + item.strategy + '</div>' : '') +
+          (item.currentStatus ? '<div style="font-size:12px;color:var(--ink);margin-bottom:6px;line-height:1.6;padding:6px 10px;background:var(--paper2);border-radius:4px">' + item.currentStatus + '</div>' : '') +
+          (item.suggestion ? '<div style="font-size:12px;color:' + (urgencyColor[item.urgency]||'var(--muted)') + ';line-height:1.6;font-weight:500">' + item.suggestion + '</div>' : '') +
+          (item.earningsAlert ? '<div style="font-size:11px;color:var(--gold);margin-top:4px">📅 ' + item.earningsAlert + '</div>' : '') +
+        '</div>' +
+      '</div>'
+    ).join('');
+  };
+
+  el.innerHTML = renderCards(twItems, '🇹🇼 台股') + renderCards(usItems, '🇺🇸 美股');
+
   const executed = executedItems.slice(-5).reverse();
   const execEl = document.getElementById('executed-list');
   if (execEl) execEl.innerHTML = executed.length
-    ? executed.map(i => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px"><span><strong>' + (i.name||i.ticker) + '</strong></span><span style="color:var(--muted)">' + (i.executedAt||'') + '</span></div>').join('')
+    ? executed.map(i => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px"><span>' + (i.name||i.ticker||'') + '</span><span style="color:var(--muted)">' + (i.executedAt||'') + '</span></div>').join('')
     : '<div style="font-size:12px;color:var(--muted)">執行後打勾的項目會出現在這裡</div>';
 }
 
-// ======== NOTE MODAL ========
-function openNoteModal() {
-  window._editingNoteId = null;
-  document.getElementById('nm-raw').value = '';
-  document.getElementById('nm-summary').value = '';
-  document.getElementById('nm-tickers').value = '';
-  document.getElementById('nm-category').value = '技術指標';
-  document.getElementById('note-modal').classList.add('show');
-}
-
-// ======== PRICE ALERTS ========
-let priceAlerts = JSON.parse(localStorage.getItem('invest_price_alerts') || '{}');
-let _alertTicker = '';
-
-function openPriceAlert(ticker, name, currentPrice) {
-  _alertTicker = ticker;
-  document.getElementById('price-alert-title').textContent = ticker + ' ' + name + ' 到價通知';
-  const existing = priceAlerts[ticker] || {};
-  document.getElementById('alert-buy').value = existing.buy || '';
-  document.getElementById('alert-sell').value = existing.sell || '';
-  document.getElementById('alert-note').value = existing.note || '';
-  document.getElementById('alert-current-price').textContent = currentPrice ? '現價：' + currentPrice : '';
-  document.getElementById('price-alert-modal').classList.add('show');
-}
-
-function savePriceAlert() {
-  const buy = parseFloat(document.getElementById('alert-buy').value) || null;
-  const sell = parseFloat(document.getElementById('alert-sell').value) || null;
-  const note = document.getElementById('alert-note').value.trim();
-  if (!buy && !sell) { clearPriceAlert(); return; }
-  priceAlerts[_alertTicker] = { buy, sell, note, ticker: _alertTicker };
-  localStorage.setItem('invest_price_alerts', JSON.stringify(priceAlerts));
-  // Sync to GAS
-  saveSettingToCloud('priceAlerts', JSON.stringify(priceAlerts));
-  closeModal('price-alert-modal');
-  renderHoldings();
-  alert('✓ 到價通知已設定，GAS 會自動監控並發送 LINE 通知');
-}
-
-function clearPriceAlert() {
-  delete priceAlerts[_alertTicker];
-  localStorage.setItem('invest_price_alerts', JSON.stringify(priceAlerts));
-  saveSettingToCloud('priceAlerts', JSON.stringify(priceAlerts));
-  closeModal('price-alert-modal');
-  renderHoldings();
-}
-
-
-// ======== TECH NOTES MISSING FUNCTIONS ========
-async function aiSummarizeNote() {
-  const raw = document.getElementById('nm-raw').value.trim();
-  if (!raw) return alert('請先填入原始筆記');
-  const key = config.geminiKey;
-  if (!key) return alert('請先設定 Gemini API Key');
-  document.getElementById('nm-summary').value = '整理中...';
-  try {
-    const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-    let data;
-    for (const model of models) {
-      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{parts:[{text:'把以下投資筆記整理成2-3句清晰的重點摘要，保留具體數字和操作指令：\n' + raw}]}], generationConfig:{maxOutputTokens:200} })
-      });
-      data = await r.json();
-      if (data.error && (data.error.code===503||data.error.code===429)) continue;
-      break;
-    }
-    document.getElementById('nm-summary').value = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch(e) { document.getElementById('nm-summary').value = ''; alert('AI整理失敗：'+e.message); }
-}
-
-function saveNote() {
-  const raw = document.getElementById('nm-raw').value.trim();
-  if (!raw) return alert('請填入筆記內容');
-  if (!Array.isArray(techNotes)) techNotes = JSON.parse(localStorage.getItem('invest_tech_notes') || '[]');
-  const editId = window._editingNoteId;
-  const note = {
-    id: editId || Date.now().toString(), raw,
-    category: document.getElementById('nm-category').value,
-    tickers: document.getElementById('nm-tickers').value.split(',').map(t=>t.trim()).filter(Boolean),
-    summary: document.getElementById('nm-summary').value.trim(),
-    date: new Date().toLocaleDateString('zh-TW')
-  };
-  if (editId) {
-    techNotes = techNotes.map(n => n.id === editId ? note : n);
-    window._editingNoteId = null;
-  } else {
-    techNotes.unshift(note);
-  }
-  localStorage.setItem('invest_tech_notes', JSON.stringify(techNotes));
-  saveSettingToCloud('techNotes', JSON.stringify(techNotes));
-  closeModal('note-modal');
-  renderTechNotes();
-}
-
-function renderTechNotes() {
-  const cats = ['全部','技術指標','個股策略','操作心法','產業觀察','風險提醒'];
-  const counts = {};
-  techNotes.forEach(n => { counts[n.category] = (counts[n.category]||0)+1; });
-  const catColors = { '技術指標':'#378ADD', '個股策略':'#1D9E75', '操作心法':'#BA7517', '產業觀察':'#7F77DD', '風險提醒':'#E24B4A' };
-  const catEmoji = {'技術指標':'📊','個股策略':'🎯','操作心法':'🧠','產業觀察':'🏭','風險提醒':'⚠️'};
-  const catsEl = document.getElementById('notes-categories');
-  if (catsEl) catsEl.innerHTML = cats.map(cat => {
-    const count = cat==='全部' ? techNotes.length : (counts[cat]||0);
-    const active = currentNoteCategory === cat;
-    const bg = active ? 'background:var(--ink);color:var(--paper)' : 'color:var(--ink)';
-    return '<div data-c="' + cat + '" onclick="filterByCategory(this.dataset.c)" style="padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;' + bg + '"><span>' + cat + '</span><span style="opacity:0.6">' + count + '</span></div>';
-  }).join('');
-  const allTickers = [...new Set(techNotes.flatMap(n=>n.tickers))];
-  const tickersEl = document.getElementById('notes-tickers');
-  if (tickersEl) tickersEl.innerHTML = allTickers.map(t =>
-    '<span data-tk="' + t + '" onclick="filterByTicker(this.dataset.tk)" style="font-size:11px;padding:3px 7px;background:var(--paper2);border:1px solid var(--border);border-radius:4px;cursor:pointer">' + t + '</span>'
-  ).join('');
-  filterNotes();
-}
-
-function filterByCategory(cat) { currentNoteCategory = cat; renderTechNotes(); }
-function filterByTicker(ticker) { const el = document.getElementById('notes-search'); if (el) el.value = ticker; filterNotes(); }
-
-function filterNotes() {
-  const search = (document.getElementById('notes-search')?.value||'').toLowerCase();
-  let filtered = techNotes;
-  if (currentNoteCategory !== '全部') filtered = filtered.filter(n => n.category === currentNoteCategory);
-  if (search) filtered = filtered.filter(n =>
-    n.raw.toLowerCase().includes(search) || (n.summary||'').toLowerCase().includes(search) ||
-    n.tickers.some(t => t.toLowerCase().includes(search))
-  );
-  const el = document.getElementById('notes-list');
-  if (!el) return;
-  if (!filtered.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">沒有符合的筆記</div>'; return; }
-  const catColors = { '技術指標':'#378ADD', '個股策略':'#1D9E75', '操作心法':'#BA7517', '產業觀察':'#7F77DD', '風險提醒':'#E24B4A' };
-  const catEmoji = {'技術指標':'📊','個股策略':'🎯','操作心法':'🧠','產業觀察':'🏭','風險提醒':'⚠️'};
-  el.innerHTML = filtered.map(n =>
-    '<div style="background:var(--paper2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;border-left:3px solid ' + (catColors[n.category]||'var(--border)') + '">' +
-    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">' +
-      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-        '<span style="font-size:11px;font-weight:600">' + (catEmoji[n.category]||'') + ' ' + n.category + '</span>' +
-        n.tickers.map(t=>'<span style="font-size:10px;padding:2px 6px;background:var(--paper3);border-radius:3px;color:var(--muted)">' + t + '</span>').join('') +
-      '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center">' +
-        '<span style="font-size:11px;color:var(--muted)">' + n.date + '</span>' +
-        '<button data-nid="' + n.id + '" onclick="deleteNote(this.dataset.nid)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">✕</button>' +
-      '</div>' +
-    '</div>' +
-    '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.7;background:var(--paper);padding:8px 10px;border-radius:4px;white-space:pre-wrap">' + n.raw + '</div>' +
-    (n.summary ? '<div style="font-size:12px;line-height:1.6;color:var(--ink);margin-top:6px">' + n.summary + '</div>' : '') +
-    '<div style="margin-top:8px"><button data-nid2="' + n.id + '" onclick="editNote(this.dataset.nid2)" style="font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;padding:2px 8px;cursor:pointer">編輯</button></div>' +
-    '</div>'
-  ).join('');
-}
-
-function editNote(id) {
-  const note = techNotes.find(n => n.id === id);
-  if (!note) return;
-  document.getElementById('nm-raw').value = note.raw;
-  document.getElementById('nm-summary').value = note.summary || '';
-  document.getElementById('nm-tickers').value = note.tickers.join(', ');
-  document.getElementById('nm-category').value = note.category;
-  // Store editing id
-  window._editingNoteId = id;
-  document.getElementById('note-modal').classList.add('show');
-}
 
 function deleteNote(id) {
   if (!confirm('確定刪除？')) return;
