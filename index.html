@@ -1639,7 +1639,7 @@ function renderPerformance() {
       return `<tr id="detail-${r.month}" style="display:none;background:var(--paper2)">
         <td colspan="2" style="padding-left:20px;font-size:11px">${t.date} <span class="ticker-badge" style="font-size:9px">${t.ticker}</span> ${t.name}</td>
         <td style="font-size:11px;color:var(--muted)">${t.qty}股 @ ${cur}${t.price}</td>
-        <td colspan="3" style="font-size:11px;color:var(--muted)">總額 ${cur}${Math.round(Math.abs(t.total)).toLocaleString()}</td>
+        <td colspan="3" style="font-size:11px;color:var(--muted)">總額 ${t.market==='us' ? 'NT$'+Math.round(Math.abs(t.total)*(cash.usd_rate||31.5)).toLocaleString()+' ($'+t.total.toFixed(0)+')' : 'NT$'+Math.round(Math.abs(t.total)).toLocaleString()}</td>
       </tr>`;
     }).join('') : '';
     return `<tr onclick="toggleMonthDetail('${r.month}')" style="cursor:pointer">
