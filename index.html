@@ -1577,8 +1577,9 @@ function calcRealizedPnL() {
     } else {
       const avgCost = h.qty > 0 ? h.totalCost / h.qty : 0;
       const pnl = (t.price - avgCost) * t.qty - (t.total ? 0 : 0);
+      const usdRate = cash.usd_rate || 31.5;
       if (t.market === 'tw') monthlyMap[month].tw += pnl;
-      else monthlyMap[month].us += pnl;
+      else monthlyMap[month].us += pnl * usdRate;
       h.qty -= t.qty;
       h.totalCost -= avgCost * t.qty;
       if (h.qty < 0) h.qty = 0;
