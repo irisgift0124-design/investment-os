@@ -1625,10 +1625,32 @@ function renderPerformance() {
     <div class="summary-card"><div class="summary-label">美股未實現損益</div><div class="summary-value ${usUnrealized>=0?'up':'down'}">${usUnrealized>=0?'+':''}$ ${Math.round(usUnrealized).toLocaleString()}</div></div>
   `;
 
-  // Monthly table
-  document.getElementById('realized-tbody').innerHTML = rows.slice(-12).reverse().map(r =>
-    `<tr><td>${r.month}</td><td class="${r.tw>=0?'pnl-up':'pnl-down'}">${r.tw>=0?'+':''}${Math.round(r.tw).toLocaleString()}</td><td class="${r.us>=0?'pnl-up':'pnl-down'}">${r.us>=0?'+':''}${Math.round(r.us).toLocaleString()}</td><td class="pnl-up">+${Math.round(r.div).toLocaleString()}</td><td class="${r.total>=0?'pnl-up':'pnl-down'}">${r.total>=0?'+':''}${Math.round(r.total).toLocaleString()}</td><td class="${r.cumulative>=0?'pnl-up':'pnl-down'}">${r.cumulative>=0?'+':''}${Math.round(r.cumulative).toLocaleString()}</td></tr>`
-  ).join('');
+  // Monthly table with expandable detail rows
+  const allTrades = [...(holdings.allTrades||[])];
+  document.getElementById('realized-tbody').innerHTML = rows.slice(-12).reverse().map(r => {
+    // Find trades in this month that are sells
+    const monthTrades = allTrades.filter(t => {
+      const d = t.date ? t.date.replace(/[/-]/g,'').slice(0,6) : '';
+      const m = r.month.replace('-','');
+      return d === m && !t.isBuy;
+    });
+    const detailRows = monthTrades.length ? monthTrades.map(t => {
+      const cur = t.market === 'us' ? '$' : 'NT$';
+      return `<tr id="detail-${r.month}" style="display:none;background:var(--paper2)">
+        <td colspan="2" style="padding-left:20px;font-size:11px">${t.date} <span class="ticker-badge" style="font-size:9px">${t.ticker}</span> ${t.name}</td>
+        <td style="font-size:11px;color:var(--muted)">${t.qty}股 @ ${cur}${t.price}</td>
+        <td colspan="3" style="font-size:11px;color:var(--muted)">總額 ${cur}${Math.round(Math.abs(t.total)).toLocaleString()}</td>
+      </tr>`;
+    }).join('') : '';
+    return `<tr onclick="toggleMonthDetail('${r.month}')" style="cursor:pointer">
+      <td>${r.month} <span style="font-size:10px;color:var(--muted)">${monthTrades.length?'▸ '+monthTrades.length+'筆':''}</span></td>
+      <td class="${r.tw>=0?'pnl-up':'pnl-down'}">${r.tw>=0?'+':''}${Math.round(r.tw).toLocaleString()}</td>
+      <td class="${r.us>=0?'pnl-up':'pnl-down'}">${r.us>=0?'+':''}${Math.round(r.us).toLocaleString()}</td>
+      <td class="pnl-up">+${Math.round(r.div).toLocaleString()}</td>
+      <td class="${r.total>=0?'pnl-up':'pnl-down'}">${r.total>=0?'+':''}${Math.round(r.total).toLocaleString()}</td>
+      <td class="${r.cumulative>=0?'pnl-up':'pnl-down'}">${r.cumulative>=0?'+':''}${Math.round(r.cumulative).toLocaleString()}</td>
+    </tr>${detailRows}`;
+  }).join('');
 
   // Charts
   const last12 = rows.slice(-12);
@@ -1654,6 +1676,22 @@ function renderPerformance() {
       datasets:[{ data:[Math.round(twMV),Math.round(usMV),Math.round(twCashAmt),Math.round(usCashAmt)], backgroundColor:['rgba(26,92,46,0.7)','rgba(26,58,92,0.7)','rgba(26,92,46,0.3)','rgba(26,58,92,0.3)'], borderWidth:1 }]
     },
     options:{ plugins:{ legend:{ position:'bottom' } }, responsive:true }
+  });
+}
+
+function toggleMonthDetail(month) {
+  const rows = document.querySelectorAll('#detail-' + month);
+  rows.forEach(r => {
+    r.style.display = r.style.display === 'none' ? 'table-row' : 'none';
+  });
+  // Update arrow
+  const cells = document.querySelectorAll('#realized-tbody td');
+  cells.forEach(td => {
+    if (td.textContent.includes(month)) {
+      const span = td.querySelector('span');
+      if (span) span.textContent = span.textContent.includes('▸') ?
+        span.textContent.replace('▸','▾') : span.textContent.replace('▾','▸');
+    }
   });
 }
 
